@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,11 @@ router = APIRouter(tags=["ui"])
 
 templates = Jinja2Templates(directory="app/templates")
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 SPORT_ICONS = {
     "cycling": "\U0001F6B4",
@@ -109,7 +113,7 @@ async def do_login(
 ):
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-    if not user or not pwd_context.verify(password, user.password_hash):
+    if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
             request=request, name="login.html",
             context={"error": "Invalid email or password.", "success": None, "mode": "login"},
@@ -153,7 +157,7 @@ async def do_register(
 
     user = User(
         email=email,
-        password_hash=pwd_context.hash(password),
+        password_hash=hash_password(password),
         display_name=display_name or None,
     )
     db.add(user)

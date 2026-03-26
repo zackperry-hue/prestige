@@ -94,7 +94,7 @@ def normalize_wahoo_workout(data: dict) -> NormalizedWorkout:
 
     summary = data.get("workout_summary", {}) or {}
     duration = summary.get("duration_active_accum") or summary.get("duration_total_accum") or 0
-    ended_at = started_at + timedelta(seconds=int(duration)) if duration else None
+    ended_at = started_at + timedelta(seconds=int(float(duration))) if duration else None
 
     workout_type_id = data.get("workout_type_id", 0)
 
@@ -104,7 +104,7 @@ def normalize_wahoo_workout(data: dict) -> NormalizedWorkout:
         sport_type=normalize_sport_type("wahoo", workout_type_id),
         started_at=started_at,
         ended_at=ended_at,
-        duration_seconds=int(duration),
+        duration_seconds=int(float(duration)),
         distance_meters=summary.get("distance_accum"),
         calories=summary.get("calories_accum"),
         avg_heart_rate=summary.get("heart_rate_avg"),

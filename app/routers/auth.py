@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +15,11 @@ from app.schemas.user import TokenResponse, UserCreate, UserLogin, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def _hash_pw(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def _verify_pw(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -64,7 +68,7 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
 
     user = User(
         email=data.email,
-        password_hash=pwd_context.hash(data.password),
+        password_hash=_hash_pw(data.password),
         display_name=data.display_name,
         timezone=data.timezone,
         unit_system=data.unit_system,
@@ -79,7 +83,7 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
-    if not user or not pwd_context.verify(data.password, user.password_hash):
+    if not user or not _verify_pw(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_access_token(user.id)
