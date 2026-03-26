@@ -19,56 +19,77 @@
             <!-- Connected Platforms -->
             <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
                 <h2 class="text-lg font-semibold text-white mb-4">Platforms</h2>
-                <div class="divide-y divide-gray-800">
+                <div class="space-y-3">
                     {% set platforms = [
-                        {'key': 'strava', 'name': 'Strava', 'brand_color': '#FC4C02'},
-                        {'key': 'whoop', 'name': 'Whoop', 'brand_color': '#00B8B0'},
-                        {'key': 'wahoo', 'name': 'Wahoo', 'brand_color': '#0068FF'}
+                        {'key': 'strava', 'name': 'Strava', 'brand_color': '#FC4C02', 'bg': 'bg-orange-500/10'},
+                        {'key': 'whoop', 'name': 'Whoop', 'brand_color': '#00B8B0', 'bg': 'bg-teal-500/10'},
+                        {'key': 'wahoo', 'name': 'Wahoo', 'brand_color': '#0068FF', 'bg': 'bg-blue-500/10'}
                     ] %}
 
                     {% for p in platforms %}
-                    <div id="platform-{{ p.key }}" class="flex items-center justify-between py-3 {% if not loop.first %}{% endif %}">
-                        <!-- Platform name with brand accent -->
-                        <div class="flex items-center space-x-3">
-                            <span class="w-1 h-8 rounded-full" style="background-color: {{ p.brand_color }};"></span>
-                            <span class="font-medium text-white text-sm">{{ p.name }}</span>
-                        </div>
+                    <div id="platform-{{ p.key }}"
+                         class="flex items-center p-3 rounded-xl bg-navy-950 border border-gray-800 hover:border-gray-700 transition-colors">
 
-                        <!-- Status -->
-                        <div class="flex items-center space-x-1.5">
-                            {% if p.key in connected_platforms %}
-                            <span class="w-2 h-2 rounded-full bg-green-400"></span>
-                            <span class="text-xs text-green-400">Connected</span>
-                            {% else %}
-                            <span class="w-2 h-2 rounded-full bg-gray-600"></span>
-                            <span class="text-xs text-gray-500">Not Connected</span>
+                        <!-- Platform logo -->
+                        <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center {{ p.bg }}">
+                            {% if p.key == 'strava' %}
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="#FC4C02">
+                                <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169"/>
+                            </svg>
+                            {% elif p.key == 'whoop' %}
+                            <span class="text-sm font-black tracking-tighter" style="color: #00B8B0;">W</span>
+                            {% elif p.key == 'wahoo' %}
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="#0068FF">
+                                <path d="M2 8l4 8 4-6 4 6 4-8 4 8h2V6h-2l-4 8-4-6-4 6-4-8H2z"/>
+                            </svg>
                             {% endif %}
                         </div>
 
-                        <!-- Action -->
-                        <div>
+                        <!-- Platform name -->
+                        <div class="ml-3 flex-1 min-w-0">
+                            <div class="font-medium text-white text-sm">{{ p.name }}</div>
                             {% if p.key in connected_platforms %}
-                            <div class="relative" x-data="{ open: false }">
-                                <button onclick="this.nextElementSibling.classList.toggle('hidden')"
-                                        class="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-navy-950 transition-colors"
+                            <div class="flex items-center space-x-1 mt-0.5">
+                                <span class="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                                <span class="text-xs text-green-400">Connected</span>
+                            </div>
+                            {% else %}
+                            <div class="flex items-center space-x-1 mt-0.5">
+                                <span class="w-1.5 h-1.5 rounded-full bg-gray-600"></span>
+                                <span class="text-xs text-gray-500">Not connected</span>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <!-- Action: gear icon or connect button -->
+                        <div class="flex-shrink-0 ml-2">
+                            {% if p.key in connected_platforms %}
+                            <div class="relative">
+                                <button onclick="toggleMenu(this)"
+                                        class="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-white hover:bg-navy-900 transition-colors"
                                         title="Settings">
-                                    <span class="text-sm">&#x2699;&#xFE0F;</span>
+                                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="3"/>
+                                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                                    </svg>
                                 </button>
-                                <div class="hidden absolute right-0 mt-1 w-36 bg-navy-950 border border-gray-700 rounded-lg shadow-lg z-10">
+                                <div class="hidden absolute right-0 mt-1 w-40 bg-navy-950 border border-gray-700 rounded-xl shadow-xl z-10 overflow-hidden">
                                     <button hx-post="/dashboard/ui/disconnect/{{ p.key }}"
                                             hx-target="#platform-{{ p.key }}"
                                             hx-swap="outerHTML"
                                             hx-confirm="Disconnect {{ p.name }}?"
-                                            class="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-navy-900 rounded-lg transition-colors">
-                                        Disconnect
+                                            class="w-full text-left px-4 py-2.5 text-xs text-red-400 hover:bg-red-500/10 transition-colors flex items-center space-x-2">
+                                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M18 6L6 18M6 6l12 12"/>
+                                        </svg>
+                                        <span>Disconnect</span>
                                     </button>
                                 </div>
                             </div>
                             {% else %}
                             <a href="/auth/{{ p.key }}/connect?token={{ jwt_token }}"
-                               class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors inline-block"
-                               style="background-color: {{ p.brand_color }}; opacity: 0.9;"
-                               onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.9'">
+                               class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-all hover:scale-105 inline-block"
+                               style="background-color: {{ p.brand_color }};">
                                 Connect
                             </a>
                             {% endif %}
@@ -192,13 +213,41 @@
                 </div>
                 {% else %}
                 <div class="text-center py-12">
-                    <span class="text-4xl">&#x1F6B4;</span>
+                    <svg class="w-12 h-12 mx-auto text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="5" cy="18" r="3"/><circle cx="19" cy="18" r="3"/>
+                        <path d="M12 18V12l-3-3 3-3 4 4h3"/>
+                        <circle cx="12" cy="5" r="1"/>
+                    </svg>
                     <p class="mt-3 text-gray-400">No workouts yet.</p>
-                    <p class="text-sm text-gray-500">Connect a platform above to start tracking your workouts.</p>
+                    <p class="text-sm text-gray-500">Connect a platform to start tracking.</p>
                 </div>
                 {% endif %}
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleMenu(btn) {
+    document.querySelectorAll('.platform-menu-open').forEach(el => {
+        if (el !== btn.nextElementSibling) {
+            el.classList.add('hidden');
+            el.classList.remove('platform-menu-open');
+        }
+    });
+    const menu = btn.nextElementSibling;
+    menu.classList.toggle('hidden');
+    menu.classList.toggle('platform-menu-open');
+}
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('.relative')) {
+        document.querySelectorAll('.platform-menu-open').forEach(el => {
+            el.classList.add('hidden');
+            el.classList.remove('platform-menu-open');
+        });
+    }
+});
+</script>
 {% endblock %}
