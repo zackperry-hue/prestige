@@ -1,4 +1,9 @@
-"""Core pipeline: fetch workout from platform → normalize → save → email."""
+"""Core pipeline: fetch workout from platform → normalize → save → create/merge session.
+
+Email is NOT sent immediately. Instead, a session is created (or merged) and the email
+is scheduled for 10 minutes later by the session_emailer job. This gives other platforms
+time to report the same workout so we can send one combined email.
+"""
 
 import logging
 import uuid
@@ -10,8 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
 from app.models.workout import Workout
 from app.schemas.workout import NormalizedWorkout
-from app.services.email_service import send_workout_email
-from app.services.workout_insights import generate_highlights
+from app.services.session_manager import create_or_update_session
 
 logger = logging.getLogger(__name__)
 
@@ -65,19 +69,21 @@ async def process_workout(
     user_id: uuid.UUID,
     normalized: NormalizedWorkout,
 ) -> None:
-    """Full pipeline: save workout and send email notification."""
+    """Full pipeline: save workout and create/merge into a session.
+
+    The email is NOT sent here. Instead, the session_emailer background job
+    will pick up ready sessions after the 10-minute delay.
+    """
     workout = await save_workout(db, user_id, normalized)
     if workout is None:
         return
 
-    # Fetch user for email
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        logger.error("User %s not found, skipping email", user_id)
-        return
-
-    highlights = await generate_highlights(db, user_id, normalized)
-    await send_workout_email(db, user, normalized, workout.id, highlights)
-    workout.email_sent_at = datetime.now(UTC)
-    await db.commit()
+    # Create or merge into a session — this handles time-window matching
+    session = await create_or_update_session(db, user_id, normalized, workout.id)
+    logger.info(
+        "Workout %s linked to session %s (platforms: %s, email at: %s)",
+        workout.id,
+        session.id,
+        session.platforms,
+        session.email_scheduled_at,
+    )

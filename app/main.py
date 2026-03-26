@@ -8,6 +8,7 @@ from app.logging_config import setup_logging
 
 setup_logging()
 
+from app.jobs.session_emailer import check_and_send_session_emails
 from app.jobs.token_refresher import refresh_expiring_tokens
 from app.jobs.wahoo_poller import poll_wahoo_workouts
 from app.jobs.whoop_reconciler import reconcile_whoop_workouts
@@ -29,8 +30,9 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(poll_wahoo_workouts, "interval", minutes=5, id="wahoo_poller")
     scheduler.add_job(refresh_expiring_tokens, "interval", minutes=30, id="token_refresher")
     scheduler.add_job(reconcile_whoop_workouts, "cron", hour=3, minute=17, id="whoop_reconciler")
+    scheduler.add_job(check_and_send_session_emails, "interval", minutes=2, id="session_emailer")
     scheduler.start()
-    logger.info("Scheduler started with 3 jobs")
+    logger.info("Scheduler started with 4 jobs")
     yield
     # Shutdown
     scheduler.shutdown(wait=False)

@@ -288,3 +288,75 @@ async def generate_highlights(
         ))
 
     return highlights
+
+
+async def generate_session_highlights(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    session,  # WorkoutSession
+) -> WorkoutHighlights:
+    """Generate insights for a merged session using the same logic as single workouts.
+
+    Converts session data into a NormalizedWorkout-like object and reuses
+    the existing generate_highlights logic.
+    """
+    # Build a pseudo-NormalizedWorkout from session fields
+    pseudo_workout = NormalizedWorkout(
+        platform=session.platforms.split(",")[0] if session.platforms else "unknown",
+        platform_workout_id=str(session.id),
+        sport_type=session.sport_type or "other",
+        started_at=session.started_at,
+        ended_at=session.ended_at,
+        duration_seconds=session.duration_seconds or 0,
+        distance_meters=session.distance_meters,
+        calories=session.calories,
+        avg_heart_rate=session.avg_heart_rate,
+        max_heart_rate=session.max_heart_rate,
+        strain_score=session.strain_score,
+        elevation_gain=session.elevation_gain,
+        avg_power_watts=session.avg_power_watts,
+        raw_data={},
+    )
+
+    highlights = await generate_highlights(db, user_id, pseudo_workout)
+
+    # Add cross-platform insight if multiple sources contributed
+    platforms = [p for p in session.platforms.split(",") if p]
+    if len(platforms) > 1:
+        platform_names = " + ".join(p.title() for p in platforms)
+        highlights.insights.insert(0, Insight(
+            label="Combined",
+            message=f"Data merged from {platform_names} for a complete picture",
+            direction="neutral",
+        ))
+
+    # Add recovery context if available from Whoop
+    if session.recovery_score is not None:
+        if session.recovery_score >= 67:
+            highlights.insights.append(Insight(
+                label="Recovery",
+                message=f"You started this session at {session.recovery_score:.0f}% recovery — well rested",
+                direction="up",
+            ))
+        elif session.recovery_score >= 34:
+            highlights.insights.append(Insight(
+                label="Recovery",
+                message=f"Recovery was {session.recovery_score:.0f}% — moderate readiness",
+                direction="neutral",
+            ))
+        else:
+            highlights.insights.append(Insight(
+                label="Recovery",
+                message=f"Recovery was only {session.recovery_score:.0f}% — consider easier effort next time",
+                direction="down",
+            ))
+
+    # HRV insight
+    if session.hrv_rmssd is not None:
+        highlights.insights.append(Insight(
+            label="HRV",
+            message=f"Pre-workout HRV was {session.hrv_rmssd:.0f} ms (RMSSD)",
+            direction="neutral",
+        ))
+
+    return highlights
