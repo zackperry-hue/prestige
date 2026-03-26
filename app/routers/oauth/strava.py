@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +25,7 @@ STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
 
 
 @router.get("/connect")
-async def strava_connect(user: User = Depends(get_current_user)):
+async def strava_connect(token: str = Query(None), user: User = Depends(get_current_user)):
     """Redirect user to Strava's OAuth authorization page."""
     params = {
         "client_id": settings.strava_client_id,
@@ -34,7 +35,7 @@ async def strava_connect(user: User = Depends(get_current_user)):
         "state": str(user.id),
         "approval_prompt": "auto",
     }
-    return {"authorize_url": f"{STRAVA_AUTH_URL}?{urlencode(params)}"}
+    return RedirectResponse(url=f"{STRAVA_AUTH_URL}?{urlencode(params)}")
 
 
 @router.get("/callback")

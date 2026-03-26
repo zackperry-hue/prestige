@@ -16,6 +16,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(100))
     timezone: Mapped[str] = mapped_column(String(50), default="UTC")
+    unit_system: Mapped[str] = mapped_column(String(10), default="imperial")  # "metric" or "imperial"
     email_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

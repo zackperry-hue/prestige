@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -16,7 +16,7 @@ from app.schemas.user import TokenResponse, UserCreate, UserLogin, UserResponse
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-_bearer_scheme = HTTPBearer()
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def create_access_token(user_id: uuid.UUID) -> str:
@@ -26,12 +26,23 @@ def create_access_token(user_id: uuid.UUID) -> str:
 
 
 async def get_current_user(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    token: str = Query(None),
 ) -> User:
-    token = credentials.credentials
+    # Accept token from Authorization header OR query param
+    raw_token = None
+    if credentials:
+        raw_token = credentials.credentials
+    elif token:
+        raw_token = token
+
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     try:
-        payload = jwt.decode(token, settings.app_secret_key, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(raw_token, settings.app_secret_key, algorithms=[settings.jwt_algorithm])
         user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
@@ -56,6 +67,7 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
         password_hash=pwd_context.hash(data.password),
         display_name=data.display_name,
         timezone=data.timezone,
+        unit_system=data.unit_system,
     )
     db.add(user)
     await db.commit()

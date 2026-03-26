@@ -9,6 +9,7 @@ class UserCreate(BaseModel):
     password: str
     display_name: str | None = None
     timezone: str = "UTC"
+    unit_system: str = "imperial"  # "metric" or "imperial"
 
 
 class UserLogin(BaseModel):
@@ -21,6 +22,7 @@ class UserResponse(BaseModel):
     email: str
     display_name: str | None
     timezone: str
+    unit_system: str
     email_enabled: bool
     created_at: datetime
 

@@ -120,11 +120,12 @@ async def generate_highlights(
     highlights.total_workouts_this_month = month_count.scalar() or 0
 
     # --- Streak calculation (consecutive days with any workout) ---
+    day_col = func.date_trunc("day", Workout.started_at).label("day")
     recent_dates = await db.execute(
-        select(func.date_trunc("day", Workout.started_at).label("day"))
+        select(day_col)
         .where(Workout.user_id == user_id)
-        .group_by("day")
-        .order_by(func.date_trunc("day", Workout.started_at).desc())
+        .group_by(day_col)
+        .order_by(day_col.desc())
         .limit(60)
     )
     workout_days = [row.day.date() if hasattr(row.day, "date") else row.day for row in recent_dates]
