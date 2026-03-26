@@ -101,4 +101,4 @@ async def strava_callback(
         db.add(conn)
 
     await db.commit()
-    return {"status": "connected", "platform": "strava", "athlete_id": athlete_id}
+    return RedirectResponse(url="/dashboard/ui", status_code=302)

@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Workout Tracker{% endblock %}
+
+{% block content %}
+<div class="fade-in">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold text-white">
+            Welcome back{% if user.display_name %}, {{ user.display_name }}{% endif %}
+        </h1>
+        <p class="text-gray-400 mt-1">Manage your connected platforms and view your workouts.</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Left column: Connections + Preferences -->
+        <div class="lg:col-span-1 space-y-6">
+
+            <!-- Connected Platforms -->
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-4">Platforms</h2>
+                <div class="divide-y divide-gray-800">
+                    {% set platforms = [
+                        {'key': 'strava', 'name': 'Strava', 'brand_color': '#FC4C02'},
+                        {'key': 'whoop', 'name': 'Whoop', 'brand_color': '#00B8B0'},
+                        {'key': 'wahoo', 'name': 'Wahoo', 'brand_color': '#0068FF'}
+                    ] %}
+
+                    {% for p in platforms %}
+                    <div id="platform-{{ p.key }}" class="flex items-center justify-between py-3 {% if not loop.first %}{% endif %}">
+                        <!-- Platform name with brand accent -->
+                        <div class="flex items-center space-x-3">
+                            <span class="w-1 h-8 rounded-full" style="background-color: {{ p.brand_color }};"></span>
+                            <span class="font-medium text-white text-sm">{{ p.name }}</span>
+                        </div>
+
+                        <!-- Status -->
+                        <div class="flex items-center space-x-1.5">
+                            {% if p.key in connected_platforms %}
+                            <span class="w-2 h-2 rounded-full bg-green-400"></span>
+                            <span class="text-xs text-green-400">Connected</span>
+                            {% else %}
+                            <span class="w-2 h-2 rounded-full bg-gray-600"></span>
+                            <span class="text-xs text-gray-500">Not Connected</span>
+                            {% endif %}
+                        </div>
+
+                        <!-- Action -->
+                        <div>
+                            {% if p.key in connected_platforms %}
+                            <div class="relative" x-data="{ open: false }">
+                                <button onclick="this.nextElementSibling.classList.toggle('hidden')"
+                                        class="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-navy-950 transition-colors"
+                                        title="Settings">
+                                    <span class="text-sm">&#x2699;&#xFE0F;</span>
+                                </button>
+                                <div class="hidden absolute right-0 mt-1 w-36 bg-navy-950 border border-gray-700 rounded-lg shadow-lg z-10">
+                                    <button hx-post="/dashboard/ui/disconnect/{{ p.key }}"
+                                            hx-target="#platform-{{ p.key }}"
+                                            hx-swap="outerHTML"
+                                            hx-confirm="Disconnect {{ p.name }}?"
+                                            class="w-full text-left px-3 py-2 text-xs text-red-400 hover:bg-navy-900 rounded-lg transition-colors">
+                                        Disconnect
+                                    </button>
+                                </div>
+                            </div>
+                            {% else %}
+                            <a href="/auth/{{ p.key }}/connect?token={{ jwt_token }}"
+                               class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors inline-block"
+                               style="background-color: {{ p.brand_color }}; opacity: 0.9;"
+                               onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.9'">
+                                Connect
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Preferences -->
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-4">Preferences</h2>
+                <form hx-patch="/dashboard/ui/preferences"
+                      hx-target="#prefs-status"
+                      hx-swap="innerHTML"
+                      class="space-y-4">
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Unit System</label>
+                        <select name="unit_system"
+                                class="w-full px-3 py-2 rounded-lg bg-navy-950 border border-gray-700
+                                       text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="imperial" {% if user.unit_system == 'imperial' %}selected{% endif %}>Imperial (mi, ft, lb)</option>
+                            <option value="metric" {% if user.unit_system == 'metric' %}selected{% endif %}>Metric (km, m, kg)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Timezone</label>
+                        <select name="timezone"
+                                class="w-full px-3 py-2 rounded-lg bg-navy-950 border border-gray-700
+                                       text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            {% set timezones = [
+                                'US/Eastern', 'US/Central', 'US/Mountain', 'US/Pacific', 'US/Alaska', 'US/Hawaii',
+                                'UTC',
+                                'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow',
+                                'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Kolkata', 'Asia/Dubai',
+                                'Australia/Sydney', 'Australia/Perth',
+                                'Pacific/Auckland',
+                                'America/Sao_Paulo', 'America/Toronto', 'America/Mexico_City'
+                            ] %}
+                            {% for tz in timezones %}
+                            <option value="{{ tz }}" {% if user.timezone == tz %}selected{% endif %}>{{ tz }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <label class="text-sm font-medium text-gray-300">Email Notifications</label>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" name="email_enabled" value="true"
+                                   {% if user.email_enabled %}checked{% endif %}
+                                   class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-700 rounded-full peer
+                                        peer-checked:bg-blue-600 transition-colors
+                                        after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+                                        after:bg-white after:rounded-full after:h-5 after:w-5
+                                        after:transition-all peer-checked:after:translate-x-full"></div>
+                        </label>
+                    </div>
+
+                    <button type="submit"
+                            class="w-full py-2 px-4 rounded-lg bg-blue-600 hover:bg-blue-500
+                                   text-white text-sm font-medium transition-colors">
+                        Save Preferences
+                    </button>
+                    <div id="prefs-status" class="text-center text-sm"></div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Right column: Recent Workouts -->
+        <div class="lg:col-span-2">
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-4">Recent Workouts</h2>
+
+                {% if workouts %}
+                <div class="space-y-2">
+                    {% for w in workouts %}
+                    <a href="/dashboard/ui/workout/{{ w.id }}"
+                       class="flex items-center justify-between p-4 rounded-xl bg-navy-950 border border-gray-800
+                              hover:border-gray-600 transition-colors group">
+                        <div class="flex items-center space-x-4">
+                            <span class="text-2xl">{{ w.sport_icon }}</span>
+                            <div>
+                                <div class="font-medium text-white group-hover:text-blue-400 transition-colors">
+                                    {{ w.sport_type or 'Workout' | capitalize }}
+                                </div>
+                                <div class="text-sm text-gray-400">
+                                    {{ w.started_at.strftime('%b %d, %Y at %I:%M %p') }}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-6 text-right">
+                            {% if w.duration_seconds %}
+                            <div>
+                                <div class="text-sm font-medium text-white">
+                                    {{ (w.duration_seconds // 3600) }}h {{ ((w.duration_seconds % 3600) // 60) }}m
+                                </div>
+                                <div class="text-xs text-gray-500">Duration</div>
+                            </div>
+                            {% endif %}
+                            {% if w.distance_display %}
+                            <div class="hidden sm:block">
+                                <div class="text-sm font-medium text-white">{{ w.distance_display }}</div>
+                                <div class="text-xs text-gray-500">Distance</div>
+                            </div>
+                            {% endif %}
+                            <div>
+                                <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium
+                                    {% if w.platform == 'strava' %}bg-strava/20 text-strava
+                                    {% elif w.platform == 'whoop' %}bg-whoop/20 text-whoop
+                                    {% elif w.platform == 'wahoo' %}bg-wahoo/20 text-wahoo
+                                    {% else %}bg-gray-700 text-gray-300{% endif %}">
+                                    {{ w.platform | capitalize }}
+                                </span>
+                            </div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-12">
+                    <span class="text-4xl">&#x1F6B4;</span>
+                    <p class="mt-3 text-gray-400">No workouts yet.</p>
+                    <p class="text-sm text-gray-500">Connect a platform above to start tracking your workouts.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

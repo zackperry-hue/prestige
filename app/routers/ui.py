@@ -1,0 +1,357 @@
+"""UI router: serves HTML pages with cookie-based session auth."""
+
+import logging
+import uuid
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.database import get_db
+from app.models.connection import PlatformConnection
+from app.models.user import User
+from app.models.workout import Workout
+from app.models.workout_session import WorkoutSession
+from app.routers.auth import create_access_token
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(tags=["ui"])
+
+templates = Jinja2Templates(directory="app/templates")
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+SPORT_ICONS = {
+    "cycling": "\U0001F6B4",
+    "ride": "\U0001F6B4",
+    "virtualride": "\U0001F6B4",
+    "running": "\U0001F3C3",
+    "run": "\U0001F3C3",
+    "virtualrun": "\U0001F3C3",
+    "swimming": "\U0001F3CA",
+    "swim": "\U0001F3CA",
+    "strength": "\U0001F4AA",
+    "strength training": "\U0001F4AA",
+    "weighttraining": "\U0001F4AA",
+}
+DEFAULT_SPORT_ICON = "\U0001F6B4"
+
+
+def _sport_icon(sport_type: str | None) -> str:
+    if not sport_type:
+        return DEFAULT_SPORT_ICON
+    return SPORT_ICONS.get(sport_type.lower(), DEFAULT_SPORT_ICON)
+
+
+def _distance_display(distance_meters: float | None, unit_system: str) -> str | None:
+    if distance_meters is None:
+        return None
+    if unit_system == "metric":
+        km = distance_meters / 1000
+        return f"{km:.1f} km"
+    else:
+        miles = distance_meters / 1609.344
+        return f"{miles:.1f} mi"
+
+
+def _elevation_display(elevation_meters: float | None, unit_system: str) -> str | None:
+    if elevation_meters is None:
+        return None
+    if unit_system == "metric":
+        return f"{elevation_meters:.0f} m"
+    else:
+        feet = elevation_meters * 3.28084
+        return f"{feet:.0f} ft"
+
+
+async def _get_user_from_cookie(request: Request, db: AsyncSession) -> User | None:
+    """Extract user from the session cookie JWT token."""
+    token = request.cookies.get("session_token")
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.app_secret_key, algorithms=[settings.jwt_algorithm])
+        user_id = payload.get("sub")
+        if user_id is None:
+            return None
+    except JWTError:
+        return None
+
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    return result.scalar_one_or_none()
+
+
+# ---------------------------------------------------------------------------
+# Login / Register / Logout
+# ---------------------------------------------------------------------------
+
+@router.get("/", response_class=HTMLResponse)
+async def login_page(request: Request, db: AsyncSession = Depends(get_db)):
+    """Show login page, or redirect to dashboard if already authenticated."""
+    user = await _get_user_from_cookie(request, db)
+    if user:
+        return RedirectResponse(url="/dashboard/ui", status_code=302)
+    return templates.TemplateResponse(request=request, name="login.html", context={"error": None, "success": None, "mode": "login"})
+
+
+@router.post("/dashboard/ui/login", response_class=HTMLResponse)
+async def do_login(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if not user or not pwd_context.verify(password, user.password_hash):
+        return templates.TemplateResponse(
+            request=request, name="login.html",
+            context={"error": "Invalid email or password.", "success": None, "mode": "login"},
+            status_code=401,
+        )
+
+    token = create_access_token(user.id)
+    response = RedirectResponse(url="/dashboard/ui", status_code=302)
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=settings.jwt_expire_minutes * 60,
+    )
+    return response
+
+
+@router.post("/dashboard/ui/register", response_class=HTMLResponse)
+async def do_register(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    display_name: str = Form(None),
+    db: AsyncSession = Depends(get_db),
+):
+    existing = await db.execute(select(User).where(User.email == email))
+    if existing.scalar_one_or_none():
+        return templates.TemplateResponse(
+            request=request, name="login.html",
+            context={"error": "That email is already registered.", "success": None, "mode": "register"},
+            status_code=409,
+        )
+
+    if len(password) < 8:
+        return templates.TemplateResponse(
+            request=request, name="login.html",
+            context={"error": "Password must be at least 8 characters.", "success": None, "mode": "register"},
+            status_code=400,
+        )
+
+    user = User(
+        email=email,
+        password_hash=pwd_context.hash(password),
+        display_name=display_name or None,
+    )
+    db.add(user)
+    await db.commit()
+
+    token = create_access_token(user.id)
+    response = RedirectResponse(url="/dashboard/ui", status_code=302)
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=settings.jwt_expire_minutes * 60,
+    )
+    return response
+
+
+@router.get("/dashboard/ui/logout")
+async def logout():
+    response = RedirectResponse(url="/", status_code=302)
+    response.delete_cookie("session_token")
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+
+@router.get("/dashboard/ui", response_class=HTMLResponse)
+async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await _get_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/", status_code=302)
+
+    # Get connected platforms
+    result = await db.execute(
+        select(PlatformConnection)
+        .where(PlatformConnection.user_id == user.id)
+        .where(PlatformConnection.is_active.is_(True))
+    )
+    connections = result.scalars().all()
+    connected_platforms = {c.platform for c in connections}
+
+    # Get recent workouts (last 10)
+    result = await db.execute(
+        select(Workout)
+        .where(Workout.user_id == user.id)
+        .order_by(Workout.started_at.desc())
+        .limit(10)
+    )
+    workouts = result.scalars().all()
+
+    # Attach display helpers to workout objects
+    workout_list = []
+    for w in workouts:
+        w.sport_icon = _sport_icon(w.sport_type)
+        w.distance_display = _distance_display(w.distance_meters, user.unit_system)
+        workout_list.append(w)
+
+    # Build JWT token for OAuth connect links
+    jwt_token = request.cookies.get("session_token", "")
+
+    return templates.TemplateResponse(request=request, name="dashboard.html", context={
+        "user": user,
+        "connected_platforms": connected_platforms,
+        "workouts": workout_list,
+        "jwt_token": jwt_token,
+    })
+
+
+# ---------------------------------------------------------------------------
+# HTMX: Disconnect platform
+# ---------------------------------------------------------------------------
+
+@router.post("/dashboard/ui/disconnect/{platform}", response_class=HTMLResponse)
+async def disconnect_platform(platform: str, request: Request, db: AsyncSession = Depends(get_db)):
+    user = await _get_user_from_cookie(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    if platform not in ("strava", "whoop", "wahoo"):
+        raise HTTPException(status_code=400, detail="Invalid platform")
+
+    result = await db.execute(
+        select(PlatformConnection).where(
+            PlatformConnection.user_id == user.id,
+            PlatformConnection.platform == platform,
+            PlatformConnection.is_active.is_(True),
+        )
+    )
+    conn = result.scalar_one_or_none()
+    if conn:
+        conn.is_active = False
+        await db.commit()
+
+    jwt_token = request.cookies.get("session_token", "")
+
+    # Platform display config
+    config = {
+        "strava": {"name": "Strava", "brand_color": "#FC4C02"},
+        "whoop": {"name": "Whoop", "brand_color": "#00B8B0"},
+        "wahoo": {"name": "Wahoo", "brand_color": "#0068FF"},
+    }
+    p = config[platform]
+
+    # Return the disconnected-state HTML fragment for HTMX swap
+    return HTMLResponse(f"""
+    <div id="platform-{platform}" class="flex items-center justify-between py-3">
+        <div class="flex items-center space-x-3">
+            <span class="w-1 h-8 rounded-full" style="background-color: {p['brand_color']};"></span>
+            <span class="font-medium text-white text-sm">{p['name']}</span>
+        </div>
+        <div class="flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full bg-gray-600"></span>
+            <span class="text-xs text-gray-500">Not Connected</span>
+        </div>
+        <div>
+            <a href="/auth/{platform}/connect?token={jwt_token}"
+               class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors inline-block"
+               style="background-color: {p['brand_color']}; opacity: 0.9;"
+               onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.9'">
+                Connect
+            </a>
+        </div>
+    </div>
+    """)
+
+
+# ---------------------------------------------------------------------------
+# HTMX: Save preferences
+# ---------------------------------------------------------------------------
+
+@router.patch("/dashboard/ui/preferences", response_class=HTMLResponse)
+async def save_preferences(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await _get_user_from_cookie(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    form = await request.form()
+    unit_system = form.get("unit_system")
+    timezone = form.get("timezone")
+    email_enabled = form.get("email_enabled")
+
+    if unit_system and unit_system in ("metric", "imperial"):
+        user.unit_system = unit_system
+    if timezone:
+        user.timezone = timezone
+    user.email_enabled = email_enabled == "true"
+
+    await db.commit()
+
+    return HTMLResponse(
+        '<span class="text-green-400">Preferences saved!</span>'
+    )
+
+
+# ---------------------------------------------------------------------------
+# Workout Detail
+# ---------------------------------------------------------------------------
+
+@router.get("/dashboard/ui/workout/{workout_id}", response_class=HTMLResponse)
+async def workout_detail_page(workout_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    user = await _get_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/", status_code=302)
+
+    try:
+        wid = uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    result = await db.execute(
+        select(Workout).where(Workout.id == wid, Workout.user_id == user.id)
+    )
+    workout = result.scalar_one_or_none()
+    if not workout:
+        raise HTTPException(status_code=404, detail="Workout not found")
+
+    # Load session if linked
+    session = None
+    session_distance_display = None
+    session_elevation_display = None
+    if workout.session_id:
+        result = await db.execute(
+            select(WorkoutSession).where(WorkoutSession.id == workout.session_id)
+        )
+        session = result.scalar_one_or_none()
+        if session:
+            session_distance_display = _distance_display(session.distance_meters, user.unit_system)
+            session_elevation_display = _elevation_display(session.elevation_gain, user.unit_system)
+
+    return templates.TemplateResponse(request=request, name="workout_detail.html", context={
+        "user": user,
+        "workout": workout,
+        "session": session,
+        "sport_icon": _sport_icon(workout.sport_type),
+        "distance_display": _distance_display(workout.distance_meters, user.unit_system),
+        "elevation_display": _elevation_display(workout.elevation_gain, user.unit_system),
+        "session_distance_display": session_distance_display,
+        "session_elevation_display": session_elevation_display,
+    })

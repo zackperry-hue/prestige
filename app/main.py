@@ -12,7 +12,7 @@ from app.jobs.session_emailer import check_and_send_session_emails
 from app.jobs.token_refresher import refresh_expiring_tokens
 from app.jobs.wahoo_poller import poll_wahoo_workouts
 from app.jobs.whoop_reconciler import reconcile_whoop_workouts
-from app.routers import auth, dashboard
+from app.routers import auth, dashboard, ui
 from app.routers.oauth import strava as strava_oauth
 from app.routers.oauth import wahoo as wahoo_oauth
 from app.routers.oauth import whoop as whoop_oauth
@@ -48,6 +48,7 @@ app.include_router(whoop_oauth.router)
 app.include_router(wahoo_oauth.router)
 app.include_router(strava_webhook.router)
 app.include_router(whoop_webhook.router)
+app.include_router(ui.router)
 
 
 @app.get("/health")

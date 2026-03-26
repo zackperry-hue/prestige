@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +25,7 @@ WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
 
 
 @router.get("/connect")
-async def whoop_connect(user: User = Depends(get_current_user)):
+async def whoop_connect(token: str = Query(None), user: User = Depends(get_current_user)):
     """Redirect user to Whoop's OAuth authorization page."""
     params = {
         "client_id": settings.whoop_client_id,
@@ -33,7 +34,7 @@ async def whoop_connect(user: User = Depends(get_current_user)):
         "scope": "read:workout read:cycles read:profile offline",
         "state": str(user.id),
     }
-    return {"authorize_url": f"{WHOOP_AUTH_URL}?{urlencode(params)}"}
+    return RedirectResponse(url=f"{WHOOP_AUTH_URL}?{urlencode(params)}")
 
 
 @router.get("/callback")
@@ -108,4 +109,4 @@ async def whoop_callback(
         db.add(conn)
 
     await db.commit()
-    return {"status": "connected", "platform": "whoop", "user_id": whoop_user_id}
+    return RedirectResponse(url="/dashboard/ui", status_code=302)

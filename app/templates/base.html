@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Workout Tracker{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        navy: {
+                            800: '#1a1f3a',
+                            900: '#0f1225',
+                            950: '#0a0d1a',
+                        },
+                        strava: '#fc4c02',
+                        whoop: '#00b8b0',
+                        wahoo: '#2563eb',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
+        .htmx-request.htmx-indicator { display: inline-block; }
+    </style>
+</head>
+<body class="h-full bg-navy-950 text-gray-100">
+    {% if user %}
+    <nav class="bg-navy-900 border-b border-gray-800">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <a href="/dashboard/ui" class="flex items-center space-x-2">
+                    <span class="text-2xl">&#x1F6B4;</span>
+                    <span class="text-lg font-bold text-white">Workout Tracker</span>
+                </a>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-400">{{ user.email }}</span>
+                    <a href="/dashboard/ui/logout"
+                       class="text-sm text-gray-400 hover:text-white transition-colors">
+                        Sign out
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

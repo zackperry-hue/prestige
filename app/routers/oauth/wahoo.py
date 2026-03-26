@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +25,7 @@ WAHOO_TOKEN_URL = "https://api.wahooligan.com/oauth/token"
 
 
 @router.get("/connect")
-async def wahoo_connect(user: User = Depends(get_current_user)):
+async def wahoo_connect(token: str = Query(None), user: User = Depends(get_current_user)):
     """Redirect user to Wahoo's OAuth authorization page."""
     params = {
         "client_id": settings.wahoo_client_id,
@@ -33,7 +34,7 @@ async def wahoo_connect(user: User = Depends(get_current_user)):
         "scope": "user_read workouts_read",
         "state": str(user.id),
     }
-    return {"authorize_url": f"{WAHOO_AUTH_URL}?{urlencode(params)}"}
+    return RedirectResponse(url=f"{WAHOO_AUTH_URL}?{urlencode(params)}")
 
 
 @router.get("/callback")
@@ -108,4 +109,4 @@ async def wahoo_callback(
         db.add(conn)
 
     await db.commit()
-    return {"status": "connected", "platform": "wahoo", "user_id": wahoo_user_id}
+    return RedirectResponse(url="/dashboard/ui", status_code=302)
