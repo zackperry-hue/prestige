@@ -13,7 +13,7 @@ from app.config import settings
 from app.database import Base
 
 # Import all models so they are registered with Base.metadata
-from app.models import EmailLog, PlatformConnection, User, WebhookEvent, Workout  # noqa: F401
+from app.models import EmailLog, PlatformConnection, User, UserProfile, WebhookEvent, Workout, WorkoutSession  # noqa: F401
 
 config = context.config
 
