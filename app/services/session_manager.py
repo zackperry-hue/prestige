@@ -41,7 +41,6 @@ async def find_matching_session(
     result = await db.execute(
         select(WorkoutSession).where(
             WorkoutSession.user_id == user_id,
-            WorkoutSession.email_sent_at.is_(None),  # only match unsent sessions
             # Overlapping time window: session start within window of workout, or vice versa
             or_(
                 and_(
