@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import pytz
 from jinja2 import Environment, FileSystemLoader
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
@@ -90,44 +91,46 @@ def _platform_color(platform: str) -> str:
     return colors.get(platform, "#666666")
 
 
+def _localize_time(dt: datetime, timezone_str: str) -> datetime:
+    """Convert a UTC datetime to the user's local timezone."""
+    try:
+        user_tz = pytz.timezone(timezone_str)
+        if dt.tzinfo is None:
+            dt = pytz.utc.localize(dt)
+        return dt.astimezone(user_tz)
+    except Exception:
+        return dt
+
+
 def render_session_email(
     user: User,
     session: WorkoutSession,
     workouts: list[Workout],
     highlights: WorkoutHighlights,
+    narrative: str | None = None,
 ) -> str:
     """Render the unified workout session email HTML."""
     template = _jinja_env.get_template("workout_session.html")
     units = getattr(user, "unit_system", "imperial")
+    user_tz = getattr(user, "timezone", "UTC") or "UTC"
+
+    # Convert to user's timezone
+    local_start = _localize_time(session.started_at, user_tz)
 
     platforms = [p for p in session.platforms.split(",") if p]
     platform_colors = {p: _platform_color(p) for p in platforms}
 
-    # Build per-platform data for the "data sources" section
-    platform_data = []
-    for w in workouts:
-        platform_data.append({
-            "platform": w.platform,
-            "color": _platform_color(w.platform),
-            "duration": _format_duration(w.duration_seconds) if w.duration_seconds else None,
-            "distance": _format_distance(w.distance_meters, units) if w.distance_meters else None,
-            "calories": int(w.calories) if w.calories else None,
-            "avg_hr": int(w.avg_heart_rate) if w.avg_heart_rate else None,
-            "max_hr": int(w.max_heart_rate) if w.max_heart_rate else None,
-            "strain": f"{w.strain_score:.1f}" if w.strain_score else None,
-            "elevation": _format_elevation(w.elevation_gain, units) if w.elevation_gain else None,
-            "power": int(w.avg_power_watts) if w.avg_power_watts else None,
-        })
-
     return template.render(
         display_name=user.display_name or user.email.split("@")[0],
+        narrative=narrative,
         platforms=platforms,
         platform_colors=platform_colors,
         platform_count=len(platforms),
         sport_type_display=_sport_type_display(session.sport_type),
-        workout_date_full=session.started_at.strftime("%m/%d/%Y"),
-        workout_date_short=session.started_at.strftime("%a %b %d"),
-        workout_time=session.started_at.strftime("%I:%M %p"),
+        workout_date_full=local_start.strftime("%m/%d/%Y"),
+        workout_date_short=local_start.strftime("%a %b %d"),
+        workout_time=local_start.strftime("%I:%M %p"),
+        timezone_abbr=local_start.strftime("%Z"),
         # Merged best-of data
         duration_display=_format_duration(session.duration_seconds) if session.duration_seconds else None,
         distance_display=_format_distance(session.distance_meters, units),
@@ -140,10 +143,7 @@ def render_session_email(
         hrv_rmssd=session.hrv_rmssd,
         elevation_gain=_format_elevation(session.elevation_gain, units),
         avg_power_watts=session.avg_power_watts,
-        # Per-platform breakdown
-        platform_data=platform_data,
-        # Highlights
-        insights=highlights.insights,
+        # Activity counts
         workouts_this_week=highlights.total_workouts_this_week,
         workouts_this_month=highlights.total_workouts_this_month,
         streak_days=highlights.streak_days,
@@ -166,13 +166,20 @@ async def send_session_email(
         logger.warning("SENDGRID_API_KEY not set, skipping email send")
         return False
 
-    html_content = render_session_email(user, session, workouts, highlights)
+    # Generate AI narrative
+    from app.services.narrative_generator import generate_workout_narrative
 
-    platforms = [p.title() for p in session.platforms.split(",") if p]
-    platform_str = " + ".join(platforms)
+    units = getattr(user, "unit_system", "imperial")
+    user_name = user.display_name or user.email.split("@")[0]
+    narrative = await generate_workout_narrative(session, highlights, user_name, units)
+
+    html_content = render_session_email(user, session, workouts, highlights, narrative=narrative)
+
+    user_tz = getattr(user, "timezone", "UTC") or "UTC"
+    local_start = _localize_time(session.started_at, user_tz)
     sport_display = _sport_type_display(session.sport_type)
-    date_str = session.started_at.strftime("%m/%d/%Y")
-    subject = f"Workout Summary for {date_str} — {sport_display} via {platform_str}"
+    date_str = local_start.strftime("%m/%d/%Y")
+    subject = f"Workout Summary — {sport_display} on {date_str}"
 
     message = Mail(
         from_email=settings.sendgrid_from_email,

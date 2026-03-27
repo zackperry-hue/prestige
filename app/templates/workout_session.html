@@ -14,7 +14,7 @@
           <!-- HEADER -->
           <tr>
             <td style="padding:0 24px 16px; text-align:center;">
-              <h1 style="margin:0; font-size:20px; font-weight:700; color:#1a1a2e;">Workout Tracker</h1>
+              <h1 style="margin:0; font-size:20px; font-weight:700; color:#1a1a2e;">Prestige</h1>
             </td>
           </tr>
 
@@ -23,227 +23,151 @@
             <td>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.08);">
 
-                <!-- Platform color bar — gradient if multi-platform -->
+                <!-- Platform color bar -->
                 <tr>
-                  <td style="padding:16px 24px; background:{% if platform_count > 1 %}linear-gradient(90deg, {{ platform_colors[platforms[0]] }}, {{ platform_colors[platforms[-1]] }}){% else %}{{ platform_colors[platforms[0]] }}{% endif %};">
+                  <td style="padding:14px 24px; background:{% if platform_count > 1 %}linear-gradient(90deg, {{ platform_colors[platforms[0]] }}, {{ platform_colors[platforms[-1]] }}){% else %}{{ platform_colors[platforms[0]] }}{% endif %};">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                       <tr>
                         <td>
-                          {% for p in platforms %}
-                          <span style="color:#ffffff; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:1px;">{{ p }}</span>{% if not loop.last %}<span style="color:rgba(255,255,255,0.5); font-size:12px;"> + </span>{% endif %}
-                          {% endfor %}
+                          <span style="color:#ffffff; font-size:16px; font-weight:700;">{{ sport_type_display }}</span>
+                          <span style="color:rgba(255,255,255,0.7); font-size:13px; margin-left:8px;">
+                            via {% for p in platforms %}{{ p | title }}{% if not loop.last %} + {% endif %}{% endfor %}
+                          </span>
                         </td>
                         <td style="text-align:right;">
-                          <span style="color:rgba(255,255,255,0.8); font-size:12px;">{{ workout_date_short }}</span>
+                          <span style="color:rgba(255,255,255,0.9); font-size:13px;">{{ workout_date_short }}</span>
                         </td>
                       </tr>
                     </table>
                   </td>
                 </tr>
 
-                <!-- WORKOUT SUMMARY HEADER -->
+                <!-- AI NARRATIVE INSIGHT (the lead) -->
+                {% if narrative %}
                 <tr>
-                  <td style="padding:24px 24px 8px;">
-                    <p style="margin:0 0 4px; font-size:12px; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:1px;">Workout Summary for</p>
-                    <h2 style="margin:0; font-size:28px; font-weight:700; color:#1a1a2e;">{{ workout_date_full }}</h2>
-                  </td>
-                </tr>
-
-                <!-- MERGED BEST-OF DATA -->
-                <tr>
-                  <td style="padding:16px 24px;">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f9fb; border-radius:8px; padding:16px;">
-                      <tr>
-                        <td style="padding:12px 16px;">
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            <tr>
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Activity</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ sport_type_display }}</span>
-                              </td>
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Sources</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ platforms | map('title') | join(' + ') }}</span>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Started</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ workout_time }}</span>
-                              </td>
-                              {% if duration_display %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Duration</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ duration_display }}</span>
-                              </td>
-                              {% endif %}
-                            </tr>
-                            {% if distance_display or calories %}
-                            <tr>
-                              {% if distance_display %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Distance</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ distance_display }}</span>
-                              </td>
-                              {% endif %}
-                              {% if calories %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Calories</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ calories | int }} kcal</span>
-                              </td>
-                              {% endif %}
-                            </tr>
-                            {% endif %}
-                            {% if avg_heart_rate or max_heart_rate %}
-                            <tr>
-                              {% if avg_heart_rate %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Avg Heart Rate</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#e74c3c;">{{ avg_heart_rate | int }} bpm</span>
-                              </td>
-                              {% endif %}
-                              {% if max_heart_rate %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Max Heart Rate</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#e74c3c;">{{ max_heart_rate | int }} bpm</span>
-                              </td>
-                              {% endif %}
-                            </tr>
-                            {% endif %}
-                            {% if strain_score is not none or recovery_score is not none %}
-                            <tr>
-                              {% if strain_score is not none %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Strain</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#00b388;">{{ "%.1f" | format(strain_score) }}</span>
-                              </td>
-                              {% endif %}
-                              {% if recovery_score is not none %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Recovery</span><br>
-                                <span style="font-size:16px; font-weight:700; color:{% if recovery_score >= 67 %}#2e7d32{% elif recovery_score >= 34 %}#f57f17{% else %}#c62828{% endif %};">{{ recovery_score | int }}%</span>
-                              </td>
-                              {% endif %}
-                            </tr>
-                            {% endif %}
-                            {% if elevation_gain or avg_power_watts %}
-                            <tr>
-                              {% if elevation_gain %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Elevation Gain</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ elevation_gain }}</span>
-                              </td>
-                              {% endif %}
-                              {% if avg_power_watts %}
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Avg Power</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ avg_power_watts | int }} W</span>
-                              </td>
-                              {% endif %}
-                            </tr>
-                            {% endif %}
-                            {% if hrv_rmssd is not none %}
-                            <tr>
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">HRV (RMSSD)</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ hrv_rmssd | int }} ms</span>
-                              </td>
-                              <td width="50%"></td>
-                            </tr>
-                            {% endif %}
-                            {% if pace_display %}
-                            <tr>
-                              <td width="50%" style="padding:4px 0;">
-                                <span style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.5px;">Pace</span><br>
-                                <span style="font-size:16px; font-weight:700; color:#1a1a2e;">{{ pace_display }}</span>
-                              </td>
-                              <td width="50%"></td>
-                            </tr>
-                            {% endif %}
-                          </table>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-
-                <!-- DATA SOURCES BREAKDOWN (only if multi-platform) -->
-                {% if platform_count > 1 %}
-                <tr>
-                  <td style="padding:8px 24px 4px;">
-                    <p style="margin:0; font-size:14px; font-weight:700; color:#1a1a2e; text-transform:uppercase; letter-spacing:0.5px;">Data Sources</p>
+                  <td style="padding:24px 24px 16px;">
+                    <p style="margin:0 0 4px; font-size:11px; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:1px;">Workout Insight</p>
+                    <p style="margin:8px 0 0; font-size:15px; line-height:1.6; color:#2a2a2a;">{{ narrative }}</p>
                   </td>
                 </tr>
                 <tr>
-                  <td style="padding:4px 24px 16px;">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                      {% for pd in platform_data %}
-                      <tr>
-                        <td style="padding:8px 0; border-bottom:1px solid #f0f0f0;">
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            <tr>
-                              <td>
-                                <span style="display:inline-block; padding:2px 8px; border-radius:4px; background-color:{{ pd.color }}; color:#fff; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">{{ pd.platform }}</span>
-                                <span style="font-size:13px; color:#666; margin-left:8px;">
-                                  {% if pd.duration %}{{ pd.duration }}{% endif %}
-                                  {% if pd.distance %} · {{ pd.distance }}{% endif %}
-                                  {% if pd.avg_hr %} · {{ pd.avg_hr }} bpm{% endif %}
-                                  {% if pd.calories %} · {{ pd.calories }} kcal{% endif %}
-                                  {% if pd.strain %} · strain {{ pd.strain }}{% endif %}
-                                  {% if pd.power %} · {{ pd.power }}W{% endif %}
-                                </span>
-                              </td>
-                            </tr>
-                          </table>
-                        </td>
-                      </tr>
-                      {% endfor %}
-                    </table>
+                  <td style="padding:0 24px;">
+                    <hr style="border:none; border-top:1px solid #eee; margin:0;">
                   </td>
                 </tr>
                 {% endif %}
 
-                <!-- HIGHLIGHTS -->
-                {% if insights %}
+                <!-- KEY STATS GRID -->
                 <tr>
-                  <td style="padding:8px 24px 4px;">
-                    <p style="margin:0; font-size:14px; font-weight:700; color:#1a1a2e; text-transform:uppercase; letter-spacing:0.5px;">Highlights</p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding:8px 24px 20px;">
+                  <td style="padding:20px 24px 8px;">
+                    <p style="margin:0 0 12px; font-size:11px; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:1px;">Session Stats</p>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                      {% for insight in insights %}
+                      <!-- Row 1: Time + Duration -->
                       <tr>
-                        <td style="padding:8px 0; border-bottom:1px solid #f0f0f0;">
-                          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                            <tr>
-                              <td width="32" style="vertical-align:top; padding-right:12px;">
-                                {% if insight.direction == 'up' %}
-                                <span style="display:inline-block; width:28px; height:28px; line-height:28px; text-align:center; border-radius:50%; background-color:#e8f5e9; color:#2e7d32; font-size:14px; font-weight:700;">&#9650;</span>
-                                {% elif insight.direction == 'down' %}
-                                <span style="display:inline-block; width:28px; height:28px; line-height:28px; text-align:center; border-radius:50%; background-color:#fce4ec; color:#c62828; font-size:14px; font-weight:700;">&#9660;</span>
-                                {% else %}
-                                <span style="display:inline-block; width:28px; height:28px; line-height:28px; text-align:center; border-radius:50%; background-color:#e3f2fd; color:#1565c0; font-size:14px; font-weight:700;">&#8226;</span>
-                                {% endif %}
-                              </td>
-                              <td style="vertical-align:middle;">
-                                <span style="font-size:11px; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:0.5px;">{{ insight.label }}</span><br>
-                                <span style="font-size:14px; color:#333;">{{ insight.message }}</span>
-                              </td>
-                            </tr>
-                          </table>
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Started</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ workout_time }}</span>
+                          <span style="font-size:11px; color:#999;"> {{ timezone_abbr }}</span>
                         </td>
+                        {% if duration_display %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Duration</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ duration_display }}</span>
+                        </td>
+                        {% endif %}
                       </tr>
-                      {% endfor %}
+                      <!-- Row 2: Distance + Calories -->
+                      {% if distance_display or calories %}
+                      <tr>
+                        {% if distance_display %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Distance</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ distance_display }}</span>
+                        </td>
+                        {% endif %}
+                        {% if calories %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Calories</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ calories | int }} kcal</span>
+                        </td>
+                        {% endif %}
+                      </tr>
+                      {% endif %}
+                      <!-- Row 3: Heart Rate -->
+                      {% if avg_heart_rate or max_heart_rate %}
+                      <tr>
+                        {% if avg_heart_rate %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Avg Heart Rate</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#e74c3c;">{{ avg_heart_rate | int }} bpm</span>
+                        </td>
+                        {% endif %}
+                        {% if max_heart_rate %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Max Heart Rate</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#e74c3c;">{{ max_heart_rate | int }} bpm</span>
+                        </td>
+                        {% endif %}
+                      </tr>
+                      {% endif %}
+                      <!-- Row 4: Strain + Recovery (Whoop) -->
+                      {% if strain_score is not none or recovery_score is not none %}
+                      <tr>
+                        {% if strain_score is not none %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Strain</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#00b388;">{{ "%.1f" | format(strain_score) }}</span>
+                        </td>
+                        {% endif %}
+                        {% if recovery_score is not none %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Recovery</span><br>
+                          <span style="font-size:18px; font-weight:700; color:{% if recovery_score >= 67 %}#2e7d32{% elif recovery_score >= 34 %}#f57f17{% else %}#c62828{% endif %};">{{ recovery_score | int }}%</span>
+                        </td>
+                        {% endif %}
+                      </tr>
+                      {% endif %}
+                      <!-- Row 5: Elevation + Power -->
+                      {% if elevation_gain or avg_power_watts %}
+                      <tr>
+                        {% if elevation_gain %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Elevation Gain</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ elevation_gain }}</span>
+                        </td>
+                        {% endif %}
+                        {% if avg_power_watts %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Avg Power</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ avg_power_watts | int }} W</span>
+                        </td>
+                        {% endif %}
+                      </tr>
+                      {% endif %}
+                      <!-- Row 6: Pace + HRV -->
+                      {% if pace_display or hrv_rmssd is not none %}
+                      <tr>
+                        {% if pace_display %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Pace</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ pace_display }}</span>
+                        </td>
+                        {% endif %}
+                        {% if hrv_rmssd is not none %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">HRV (RMSSD)</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ hrv_rmssd | int }} ms</span>
+                        </td>
+                        {% endif %}
+                      </tr>
+                      {% endif %}
                     </table>
                   </td>
                 </tr>
-                {% endif %}
 
                 <!-- ACTIVITY SUMMARY BAR -->
                 <tr>
-                  <td style="padding:0 24px 20px;">
+                  <td style="padding:16px 24px 20px;">
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4ff; border-radius:8px;">
                       <tr>
                         <td style="padding:14px 16px; text-align:center;">
@@ -272,7 +196,7 @@
           <!-- FOOTER -->
           <tr>
             <td style="padding:24px; text-align:center;">
-              <p style="margin:0; font-size:12px; color:#999;">Workout Tracker &mdash; Your fitness data, one inbox.</p>
+              <p style="margin:0; font-size:12px; color:#999;">Prestige &mdash; Your fitness data, unified.</p>
             </td>
           </tr>
 

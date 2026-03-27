@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = ""
     sendgrid_from_email: str = "workouts@yourapp.com"
 
+    # Anthropic (Claude AI for workout narratives)
+    anthropic_api_key: str = ""
+
     # App
     app_base_url: str = "http://localhost:8000"
 
