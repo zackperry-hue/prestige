@@ -29,3 +29,6 @@ class User(Base):
     workouts: Mapped[list["Workout"]] = relationship(  # noqa: F821
         back_populates="user", cascade="all, delete-orphan"
     )
+    profile: Mapped["UserProfile | None"] = relationship(  # noqa: F821
+        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )

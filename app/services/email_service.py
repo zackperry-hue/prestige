@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.email_log import EmailLog
 from app.models.user import User
+from app.models.user_profile import UserProfile
 from app.models.workout import Workout
 from app.models.workout_session import WorkoutSession
 from app.schemas.workout import NormalizedWorkout
@@ -171,7 +172,13 @@ async def send_session_email(
 
     units = getattr(user, "unit_system", "imperial")
     user_name = user.display_name or user.email.split("@")[0]
-    narrative = await generate_workout_narrative(session, highlights, user_name, units)
+
+    # Load user profile for personalized insights
+    from sqlalchemy import select
+    profile_result = await db.execute(select(UserProfile).where(UserProfile.user_id == user.id))
+    profile = profile_result.scalar_one_or_none()
+
+    narrative = await generate_workout_narrative(session, highlights, user_name, units, profile=profile)
 
     html_content = render_session_email(user, session, workouts, highlights, narrative=narrative)
 

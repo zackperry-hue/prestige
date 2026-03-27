@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Set Up Your Profile - Prestige{% endblock %}
+
+{% block content %}
+<div class="min-h-[80vh] flex items-center justify-center">
+    <div class="w-full max-w-2xl fade-in">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-white">Let's personalize your experience</h1>
+            <p class="mt-2 text-gray-400">Help us tailor your workout insights. You can update these anytime.</p>
+        </div>
+
+        <form method="POST" action="/dashboard/ui/onboarding" class="space-y-8">
+
+            <!-- Step 1: Fitness Goals -->
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-1">What are your fitness goals?</h2>
+                <p class="text-sm text-gray-400 mb-4">Select all that apply</p>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {% set goals = [
+                        ('get_faster', 'Get Faster', '&#9889;'),
+                        ('build_endurance', 'Build Endurance', '&#128170;'),
+                        ('lose_weight', 'Lose Weight', '&#9878;&#65039;'),
+                        ('get_stronger', 'Get Stronger', '&#127947;&#65039;'),
+                        ('stay_consistent', 'Stay Consistent', '&#128197;'),
+                        ('train_for_event', 'Train for Event', '&#127942;')
+                    ] %}
+                    {% for value, label, icon in goals %}
+                    <label class="goal-card cursor-pointer">
+                        <input type="checkbox" name="fitness_goals" value="{{ value }}"
+                               {% if profile and value in (profile.fitness_goals or '').split(',') %}checked{% endif %}
+                               class="sr-only peer">
+                        <div class="flex items-center space-x-2 p-3 rounded-xl border border-gray-700
+                                    bg-navy-950 text-gray-300 transition-all
+                                    peer-checked:border-blue-500 peer-checked:bg-blue-500/10 peer-checked:text-white
+                                    hover:border-gray-600">
+                            <span class="text-lg">{{ icon }}</span>
+                            <span class="text-sm font-medium">{{ label }}</span>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Step 2: Experience Level -->
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-1">What's your experience level?</h2>
+                <p class="text-sm text-gray-400 mb-4">This helps us calibrate insight depth and tone</p>
+
+                <div class="grid grid-cols-3 gap-3">
+                    {% set levels = [
+                        ('beginner', 'Beginner', 'Getting started or returning after a break'),
+                        ('intermediate', 'Intermediate', 'Training regularly, building toward goals'),
+                        ('advanced', 'Advanced', 'Structured training, performance-focused')
+                    ] %}
+                    {% for value, label, desc in levels %}
+                    <label class="cursor-pointer">
+                        <input type="radio" name="experience_level" value="{{ value }}"
+                               {% if profile and profile.experience_level == value %}checked{% endif %}
+                               class="sr-only peer">
+                        <div class="p-4 rounded-xl border border-gray-700 bg-navy-950 text-center transition-all
+                                    peer-checked:border-blue-500 peer-checked:bg-blue-500/10
+                                    hover:border-gray-600">
+                            <div class="text-sm font-semibold text-white mb-1">{{ label }}</div>
+                            <div class="text-xs text-gray-400">{{ desc }}</div>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Step 3: Primary Sports -->
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-1">What sports do you focus on?</h2>
+                <p class="text-sm text-gray-400 mb-4">We'll prioritize relevant metrics in your summaries</p>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {% set sports = [
+                        ('running', 'Running', '&#127939;'),
+                        ('cycling', 'Cycling', '&#128692;'),
+                        ('swimming', 'Swimming', '&#127946;'),
+                        ('strength', 'Strength', '&#127947;&#65039;'),
+                        ('yoga', 'Yoga', '&#129496;'),
+                        ('hiking', 'Hiking', '&#9968;&#65039;'),
+                        ('triathlon', 'Triathlon', '&#127941;'),
+                        ('other', 'Other', '&#127944;')
+                    ] %}
+                    {% for value, label, icon in sports %}
+                    <label class="cursor-pointer">
+                        <input type="checkbox" name="primary_sports" value="{{ value }}"
+                               {% if profile and value in (profile.primary_sports or '').split(',') %}checked{% endif %}
+                               class="sr-only peer">
+                        <div class="flex flex-col items-center p-3 rounded-xl border border-gray-700
+                                    bg-navy-950 text-gray-300 transition-all
+                                    peer-checked:border-blue-500 peer-checked:bg-blue-500/10 peer-checked:text-white
+                                    hover:border-gray-600">
+                            <span class="text-xl mb-1">{{ icon }}</span>
+                            <span class="text-xs font-medium">{{ label }}</span>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Step 4: Weekly Target -->
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-1">Weekly training target</h2>
+                <p class="text-sm text-gray-400 mb-4">How many days per week do you aim to train?</p>
+
+                <div class="flex items-center space-x-4">
+                    {% for n in range(1, 8) %}
+                    <label class="cursor-pointer flex-1">
+                        <input type="radio" name="weekly_target" value="{{ n }}"
+                               {% if profile and profile.weekly_target == n %}checked{% endif %}
+                               class="sr-only peer">
+                        <div class="text-center py-3 rounded-xl border border-gray-700 bg-navy-950
+                                    text-gray-300 text-sm font-bold transition-all
+                                    peer-checked:border-blue-500 peer-checked:bg-blue-500/10 peer-checked:text-white
+                                    hover:border-gray-600">
+                            {{ n }}
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Step 5: Target Event (Optional) -->
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-1">Training for an event?</h2>
+                <p class="text-sm text-gray-400 mb-4">Optional — we'll provide countdown-based insights</p>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Event Name</label>
+                        <input type="text" name="target_event_name"
+                               value="{{ profile.target_event_name or '' if profile else '' }}"
+                               class="w-full px-4 py-3 rounded-lg bg-navy-950 border border-gray-700
+                                      text-white placeholder-gray-500 focus:outline-none focus:ring-2
+                                      focus:ring-blue-500 focus:border-transparent transition-all"
+                               placeholder="e.g. Chicago Marathon">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Event Date</label>
+                        <input type="date" name="target_event_date"
+                               value="{{ profile.target_event_date or '' if profile else '' }}"
+                               class="w-full px-4 py-3 rounded-lg bg-navy-950 border border-gray-700
+                                      text-white placeholder-gray-500 focus:outline-none focus:ring-2
+                                      focus:ring-blue-500 focus:border-transparent transition-all"
+                               style="color-scheme: dark;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 6: Anything else -->
+            <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">
+                <h2 class="text-lg font-semibold text-white mb-1">Anything else your coach should know?</h2>
+                <p class="text-sm text-gray-400 mb-4">Injuries, schedule constraints, or specific things you want to track</p>
+
+                <textarea name="additional_context" rows="3"
+                          class="w-full px-4 py-3 rounded-lg bg-navy-950 border border-gray-700
+                                 text-white placeholder-gray-500 focus:outline-none focus:ring-2
+                                 focus:ring-blue-500 focus:border-transparent transition-all resize-none"
+                          placeholder="e.g. Recovering from a knee injury, only train in the mornings, focusing on zone 2...">{{ profile.additional_context or '' if profile else '' }}</textarea>
+            </div>
+
+            <!-- Submit -->
+            <div class="flex items-center justify-between">
+                {% if is_edit %}
+                <a href="/dashboard/ui" class="text-sm text-gray-400 hover:text-white transition-colors">
+                    &larr; Back to Dashboard
+                </a>
+                {% else %}
+                <a href="/dashboard/ui" class="text-sm text-gray-400 hover:text-white transition-colors">
+                    Skip for now
+                </a>
+                {% endif %}
+
+                <button type="submit"
+                        class="py-3 px-8 rounded-xl bg-blue-600 hover:bg-blue-500
+                               text-white font-semibold transition-colors text-sm">
+                    {% if is_edit %}Save Changes{% else %}Continue to Dashboard &rarr;{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

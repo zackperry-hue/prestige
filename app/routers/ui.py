@@ -10,11 +10,13 @@ from jose import JWTError, jwt
 import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
 from app.models.connection import PlatformConnection
 from app.models.user import User
+from app.models.user_profile import UserProfile
 from app.models.workout import Workout
 from app.models.workout_session import WorkoutSession
 from app.routers.auth import create_access_token
@@ -164,7 +166,7 @@ async def do_register(
     await db.commit()
 
     token = create_access_token(user.id)
-    response = RedirectResponse(url="/dashboard/ui", status_code=302)
+    response = RedirectResponse(url="/dashboard/ui/onboarding", status_code=302)
     response.set_cookie(
         key="session_token",
         value=token,
@@ -191,6 +193,10 @@ async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
     user = await _get_user_from_cookie(request, db)
     if not user:
         return RedirectResponse(url="/", status_code=302)
+
+    # Eagerly load the user profile for the dashboard template
+    result = await db.execute(select(UserProfile).where(UserProfile.user_id == user.id))
+    user.profile = result.scalar_one_or_none()
 
     # Get connected platforms
     result = await db.execute(
@@ -312,6 +318,74 @@ async def save_preferences(request: Request, db: AsyncSession = Depends(get_db))
     return HTMLResponse(
         '<span class="text-green-400">Preferences saved!</span>'
     )
+
+
+# ---------------------------------------------------------------------------
+# Onboarding / Edit Profile
+# ---------------------------------------------------------------------------
+
+@router.get("/dashboard/ui/onboarding", response_class=HTMLResponse)
+async def onboarding_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await _get_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/", status_code=302)
+
+    # Check if profile exists already (edit mode)
+    result = await db.execute(select(UserProfile).where(UserProfile.user_id == user.id))
+    profile = result.scalar_one_or_none()
+
+    return templates.TemplateResponse(request=request, name="onboarding.html", context={
+        "user": user,
+        "profile": profile,
+        "is_edit": profile is not None,
+    })
+
+
+@router.post("/dashboard/ui/onboarding", response_class=HTMLResponse)
+async def save_onboarding(request: Request, db: AsyncSession = Depends(get_db)):
+    user = await _get_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/", status_code=302)
+
+    form = await request.form()
+
+    # Multi-select fields come as lists
+    fitness_goals = ",".join(form.getlist("fitness_goals"))
+    primary_sports = ",".join(form.getlist("primary_sports"))
+    experience_level = form.get("experience_level") or None
+    weekly_target_str = form.get("weekly_target")
+    weekly_target = int(weekly_target_str) if weekly_target_str else None
+    target_event_name = form.get("target_event_name") or None
+    target_event_date = form.get("target_event_date") or None
+    additional_context = form.get("additional_context") or None
+
+    # Upsert profile
+    result = await db.execute(select(UserProfile).where(UserProfile.user_id == user.id))
+    profile = result.scalar_one_or_none()
+
+    if profile:
+        profile.fitness_goals = fitness_goals or None
+        profile.experience_level = experience_level
+        profile.primary_sports = primary_sports or None
+        profile.weekly_target = weekly_target
+        profile.target_event_name = target_event_name
+        profile.target_event_date = target_event_date
+        profile.additional_context = additional_context
+    else:
+        profile = UserProfile(
+            user_id=user.id,
+            fitness_goals=fitness_goals or None,
+            experience_level=experience_level,
+            primary_sports=primary_sports or None,
+            weekly_target=weekly_target,
+            target_event_name=target_event_name,
+            target_event_date=target_event_date,
+            additional_context=additional_context,
+        )
+        db.add(profile)
+
+    await db.commit()
+    return RedirectResponse(url="/dashboard/ui", status_code=302)
 
 
 # ---------------------------------------------------------------------------
