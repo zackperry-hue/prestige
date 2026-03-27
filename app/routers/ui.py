@@ -238,7 +238,7 @@ async def disconnect_platform(platform: str, request: Request, db: AsyncSession 
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    if platform not in ("strava", "whoop", "wahoo"):
+    if platform not in ("strava", "whoop", "wahoo", "garmin"):
         raise HTTPException(status_code=400, detail="Invalid platform")
 
     result = await db.execute(

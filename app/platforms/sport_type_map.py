@@ -114,6 +114,70 @@ WAHOO_SPORT_MAP: dict[int, str] = {
 }
 
 
+# Garmin activityType.typeKey → normalized type
+GARMIN_SPORT_MAP: dict[str, str] = {
+    "running": "running",
+    "trail_running": "running",
+    "treadmill_running": "running",
+    "track_running": "running",
+    "cycling": "cycling",
+    "road_biking": "cycling",
+    "mountain_biking": "cycling",
+    "gravel_cycling": "cycling",
+    "indoor_cycling": "cycling",
+    "virtual_ride": "cycling",
+    "swimming": "swimming",
+    "lap_swimming": "swimming",
+    "open_water_swimming": "swimming",
+    "walking": "walking",
+    "hiking": "hiking",
+    "strength_training": "strength",
+    "yoga": "yoga",
+    "pilates": "pilates",
+    "elliptical": "elliptical",
+    "stair_climbing": "stairmaster",
+    "rowing": "rowing",
+    "indoor_rowing": "rowing",
+    "kayaking": "kayaking",
+    "surfing": "surfing",
+    "rock_climbing": "climbing",
+    "bouldering": "climbing",
+    "skiing": "skiing",
+    "resort_skiing": "skiing",
+    "cross_country_skiing": "skiing",
+    "snowboarding": "snowboarding",
+    "golf": "golf",
+    "tennis": "tennis",
+    "pickleball": "pickleball",
+    "badminton": "badminton",
+    "table_tennis": "table_tennis",
+    "soccer": "soccer",
+    "basketball": "basketball",
+    "volleyball": "volleyball",
+    "baseball": "baseball",
+    "softball": "softball",
+    "football": "football",
+    "rugby": "rugby",
+    "ice_hockey": "ice_hockey",
+    "field_hockey": "field_hockey",
+    "lacrosse": "lacrosse",
+    "boxing": "boxing",
+    "martial_arts": "martial_arts",
+    "hiit": "hiit",
+    "crossfit": "crossfit",
+    "dance": "dance",
+    "meditation": "meditation",
+    "breathwork": "meditation",
+    "stretching": "stretching",
+    "skateboarding": "skateboarding",
+    "sailing": "sailing",
+    "triathlon": "triathlon",
+    "duathlon": "duathlon",
+    "multi_sport": "other",
+    "other": "other",
+}
+
+
 def normalize_sport_type(platform: str, raw_type: int | str) -> str:
     if platform == "whoop":
         return WHOOP_SPORT_MAP.get(int(raw_type), "other")
@@ -121,4 +185,6 @@ def normalize_sport_type(platform: str, raw_type: int | str) -> str:
         return STRAVA_SPORT_MAP.get(str(raw_type), "other")
     elif platform == "wahoo":
         return WAHOO_SPORT_MAP.get(int(raw_type), "other")
+    elif platform == "garmin":
+        return GARMIN_SPORT_MAP.get(str(raw_type).lower(), "other")
     return "other"

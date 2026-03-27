@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Connect Garmin - Workout Tracker{% endblock %}
+
+{% block content %}
+<div class="fade-in max-w-md mx-auto mt-12">
+    <div class="bg-navy-900 rounded-2xl p-8 border border-gray-800">
+        <div class="text-center mb-6">
+            <div class="w-16 h-16 mx-auto rounded-xl bg-green-500/10 flex items-center justify-center mb-4">
+                <svg class="w-8 h-8" viewBox="0 0 24 24" fill="#00B050">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14l-4-4 1.41-1.41L11 13.17l5.59-5.59L18 9l-7 7z"/>
+                </svg>
+            </div>
+            <h2 class="text-xl font-bold text-white">Connect Garmin</h2>
+            <p class="text-gray-400 text-sm mt-2">
+                Enter your Garmin Connect credentials to sync your workouts.
+            </p>
+        </div>
+
+        {% if error %}
+        <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4">
+            <p class="text-red-400 text-sm">{{ error }}</p>
+        </div>
+        {% endif %}
+
+        <form method="POST" action="/auth/garmin/connect" class="space-y-4">
+            <div>
+                <label class="block text-sm text-gray-400 mb-1">Garmin Email</label>
+                <input type="email" name="garmin_email" required
+                    class="w-full px-4 py-3 rounded-lg bg-navy-950 border border-gray-700 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition"
+                    placeholder="your@email.com">
+            </div>
+            <div>
+                <label class="block text-sm text-gray-400 mb-1">Garmin Password</label>
+                <input type="password" name="garmin_password" required
+                    class="w-full px-4 py-3 rounded-lg bg-navy-950 border border-gray-700 text-white placeholder-gray-500 focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition"
+                    placeholder="••••••••">
+            </div>
+            <button type="submit"
+                class="w-full py-3 rounded-lg font-semibold text-white transition"
+                style="background-color: #00B050;">
+                Connect Garmin
+            </button>
+        </form>
+
+        <p class="text-gray-500 text-xs mt-4 text-center">
+            Your credentials are used to authenticate with Garmin Connect.
+            We store session tokens, not your password.
+        </p>
+
+        <div class="mt-4 text-center">
+            <a href="/dashboard/ui" class="text-gray-400 hover:text-white text-sm transition">
+                &larr; Back to Dashboard
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

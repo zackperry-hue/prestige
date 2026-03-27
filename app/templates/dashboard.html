@@ -23,7 +23,8 @@
                     {% set platforms = [
                         {'key': 'strava', 'name': 'Strava', 'brand_color': '#FC4C02', 'bg': 'bg-orange-500/10'},
                         {'key': 'whoop', 'name': 'Whoop', 'brand_color': '#00B8B0', 'bg': 'bg-teal-500/10'},
-                        {'key': 'wahoo', 'name': 'Wahoo', 'brand_color': '#0068FF', 'bg': 'bg-blue-500/10'}
+                        {'key': 'wahoo', 'name': 'Wahoo', 'brand_color': '#0068FF', 'bg': 'bg-blue-500/10'},
+                        {'key': 'garmin', 'name': 'Garmin', 'brand_color': '#00B050', 'bg': 'bg-green-500/10'}
                     ] %}
 
                     {% for p in platforms %}
@@ -41,6 +42,10 @@
                             {% elif p.key == 'wahoo' %}
                             <svg class="w-5 h-5" viewBox="0 0 24 24" fill="#0068FF">
                                 <path d="M2 8l4 8 4-6 4 6 4-8 4 8h2V6h-2l-4 8-4-6-4 6-4-8H2z"/>
+                            </svg>
+                            {% elif p.key == 'garmin' %}
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="#00B050">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13v6l5.25 3.15.75-1.23-4.5-2.67V7z"/>
                             </svg>
                             {% endif %}
                         </div>
