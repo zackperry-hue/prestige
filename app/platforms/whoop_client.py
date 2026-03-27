@@ -14,7 +14,7 @@ from app.services.token_manager import decrypt_token, encrypt_token
 
 logger = logging.getLogger(__name__)
 
-WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v1"
+WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v2"
 WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
 
 
