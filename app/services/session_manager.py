@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.connection import PlatformConnection
 from app.models.workout import Workout
 from app.models.workout_session import WorkoutSession
 from app.schemas.workout import NormalizedWorkout
@@ -155,6 +156,26 @@ async def create_or_update_session(
     workout_end = workout.ended_at or (
         workout.started_at + timedelta(seconds=workout.duration_seconds or 0)
     )
+
+    # Only schedule email if workout happened AFTER the platform was connected
+    # (historical backfill data should be stored but not emailed)
+    email_scheduled_at = None
+    conn_result = await db.execute(
+        select(PlatformConnection).where(
+            PlatformConnection.user_id == user_id,
+            PlatformConnection.platform == workout.platform,
+        )
+    )
+    connection = conn_result.scalar_one_or_none()
+    if connection and workout.started_at >= connection.created_at:
+        email_scheduled_at = datetime.now(UTC) + timedelta(minutes=EMAIL_DELAY_MINUTES)
+    else:
+        logger.info(
+            "Skipping email for historical %s workout from %s (before connection)",
+            workout.platform,
+            workout.started_at,
+        )
+
     session = WorkoutSession(
         user_id=user_id,
         sport_type=workout.sport_type,
@@ -169,7 +190,7 @@ async def create_or_update_session(
         avg_power_watts=workout.avg_power_watts,
         strain_score=workout.strain_score if workout.platform == "whoop" else None,
         platforms=workout.platform,
-        email_scheduled_at=datetime.now(UTC) + timedelta(minutes=EMAIL_DELAY_MINUTES),
+        email_scheduled_at=email_scheduled_at,
     )
     db.add(session)
     await db.flush()  # get the session ID
