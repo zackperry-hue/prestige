@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.logging_config import setup_logging
 
@@ -43,6 +44,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Workout Tracker", version="0.1.0", lifespan=lifespan)
+
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 app.include_router(auth.router)
 app.include_router(dashboard.router)
