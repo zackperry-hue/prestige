@@ -207,21 +207,43 @@ async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
     connections = result.scalars().all()
     connected_platforms = {c.platform for c in connections}
 
-    # Get recent workouts (last 10)
+    # Get recent sessions (grouped workouts) — last 10
+    result = await db.execute(
+        select(WorkoutSession)
+        .where(WorkoutSession.user_id == user.id)
+        .order_by(WorkoutSession.started_at.desc())
+        .limit(10)
+    )
+    sessions = result.scalars().all()
+
+    # Also get recent workouts that have NO session (orphans)
     result = await db.execute(
         select(Workout)
-        .where(Workout.user_id == user.id)
+        .where(Workout.user_id == user.id, Workout.session_id.is_(None))
         .order_by(Workout.started_at.desc())
         .limit(10)
     )
-    workouts = result.scalars().all()
+    orphan_workouts = result.scalars().all()
 
-    # Attach display helpers to workout objects
+    # Build a unified workout list from sessions + orphans
     workout_list = []
-    for w in workouts:
+    for s in sessions:
+        s.sport_icon = _sport_icon(s.sport_type)
+        s.distance_display = _distance_display(s.distance_meters, user.unit_system)
+        s.platform_list = [p.strip() for p in (s.platforms or "").split(",") if p.strip()]
+        s.is_session = True
+        workout_list.append(s)
+
+    for w in orphan_workouts:
         w.sport_icon = _sport_icon(w.sport_type)
         w.distance_display = _distance_display(w.distance_meters, user.unit_system)
+        w.platform_list = [w.platform]
+        w.is_session = False
         workout_list.append(w)
+
+    # Sort combined list by started_at descending, take top 10
+    workout_list.sort(key=lambda x: x.started_at, reverse=True)
+    workout_list = workout_list[:10]
 
     # Build JWT token for OAuth connect links
     jwt_token = request.cookies.get("session_token", "")
@@ -391,6 +413,44 @@ async def save_onboarding(request: Request, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 # Workout Detail
 # ---------------------------------------------------------------------------
+
+@router.get("/dashboard/ui/session/{session_id}", response_class=HTMLResponse)
+async def session_detail_page(session_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Show detail page for a merged workout session."""
+    user = await _get_user_from_cookie(request, db)
+    if not user:
+        return RedirectResponse(url="/", status_code=302)
+
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = await db.execute(
+        select(WorkoutSession).where(WorkoutSession.id == sid, WorkoutSession.user_id == user.id)
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Load all workouts in this session
+    result = await db.execute(
+        select(Workout).where(Workout.session_id == sid).order_by(Workout.platform)
+    )
+    session_workouts = result.scalars().all()
+
+    return templates.TemplateResponse(request=request, name="workout_detail.html", context={
+        "user": user,
+        "workout": session_workouts[0] if session_workouts else None,
+        "session": session,
+        "session_workouts": session_workouts,
+        "sport_icon": _sport_icon(session.sport_type),
+        "distance_display": _distance_display(session.distance_meters, user.unit_system),
+        "elevation_display": _elevation_display(session.elevation_gain, user.unit_system),
+        "session_distance_display": _distance_display(session.distance_meters, user.unit_system),
+        "session_elevation_display": _elevation_display(session.elevation_gain, user.unit_system),
+    })
+
 
 @router.get("/dashboard/ui/workout/{workout_id}", response_class=HTMLResponse)
 async def workout_detail_page(workout_id: str, request: Request, db: AsyncSession = Depends(get_db)):

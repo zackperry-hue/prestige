@@ -103,14 +103,69 @@ STRAVA_SPORT_MAP: dict[str, str] = {
     "HIIT": "hiit",
 }
 
-# Wahoo workout_type_id → normalized type (IDs may vary, update as docs clarify)
+# Wahoo workout_type_id → normalized type (from Wahoo Cloud API docs)
 WAHOO_SPORT_MAP: dict[int, str] = {
-    1: "cycling",
-    12: "running",
-    13: "cycling",
-    24: "swimming",
-    47: "strength",
-    0: "other",
+    0: "cycling",           # Biking
+    1: "running",           # Running
+    2: "other",             # Fitness Equipment
+    3: "running",           # Running Track
+    4: "running",           # Trail Running
+    5: "running",           # Treadmill Running
+    6: "walking",           # Walking
+    7: "walking",           # Speed Walking
+    8: "walking",           # Nordic Walking
+    9: "hiking",            # Hiking
+    10: "hiking",           # Mountaineering
+    11: "cycling",          # Cyclocross
+    12: "cycling",          # Indoor Cycling
+    13: "cycling",          # Mountain Biking
+    14: "cycling",          # Recumbent Biking
+    15: "cycling",          # Road Biking
+    16: "cycling",          # Track Cycling
+    17: "other",            # Motocycling
+    18: "other",            # General Fitness Equipment
+    19: "running",          # Treadmill
+    20: "elliptical",       # Elliptical
+    21: "cycling",          # Stationary Bike
+    22: "rowing",           # Rowing Machine
+    23: "stairmaster",      # Stair Climber
+    25: "swimming",         # Lap Swimming
+    26: "swimming",         # Open Water Swimming
+    27: "snowboarding",     # Snowboarding
+    28: "skiing",           # Skiing
+    29: "skiing",           # Downhill Skiing
+    30: "skiing",           # Cross-Country Skiing
+    31: "other",            # Skating
+    32: "other",            # Ice Skating
+    33: "other",            # Inline Skating
+    34: "other",            # Longboarding
+    35: "sailing",          # Sailing
+    36: "surfing",          # Windsurfing
+    37: "kayaking",         # Canoeing
+    38: "kayaking",         # Kayaking
+    39: "rowing",           # Rowing
+    40: "surfing",          # Kiteboarding
+    41: "other",            # Stand-Up Paddleboarding
+    42: "other",            # Workout
+    43: "other",            # Cardio Class
+    44: "stairmaster",      # Stair Climber
+    45: "other",            # Wheelchair
+    46: "golf",             # Golfing
+    47: "other",            # Other
+    49: "cycling",          # Indoor Cycling Class
+    56: "walking",          # Treadmill Walking
+    61: "cycling",          # Indoor Trainer
+    62: "triathlon",        # Multisport
+    63: "other",            # Transition
+    64: "cycling",          # E-Biking
+    65: "other",            # Tickr Offline
+    66: "yoga",             # Yoga
+    67: "running",          # Running Race
+    68: "cycling",          # Indoor Virtual Cycling
+    69: "meditation",       # Mental Strength
+    70: "cycling",          # Handcycling
+    71: "running",          # Indoor Virtual Running
+    255: "other",           # Unknown
 }
 
 

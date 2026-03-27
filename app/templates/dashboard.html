@@ -44,8 +44,9 @@
                                 <path d="M2 8l4 8 4-6 4 6 4-8 4 8h2V6h-2l-4 8-4-6-4 6-4-8H2z"/>
                             </svg>
                             {% elif p.key == 'garmin' %}
-                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="#00B050">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13v6l5.25 3.15.75-1.23-4.5-2.67V7z"/>
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 1.5c4.69 0 8.5 3.81 8.5 8.5s-3.81 8.5-8.5 8.5S3.5 16.69 3.5 12 7.31 3.5 12 3.5z" fill="#00B050"/>
+                                <path d="M12 5C8.13 5 5 8.13 5 12s3.13 7 7 7 7-3.13 7-7h-7V5z" fill="#00B050"/>
                             </svg>
                             {% endif %}
                         </div>
@@ -247,14 +248,14 @@
                 {% if workouts %}
                 <div class="space-y-2">
                     {% for w in workouts %}
-                    <a href="/dashboard/ui/workout/{{ w.id }}"
+                    <a href="{% if w.is_session %}/dashboard/ui/session/{{ w.id }}{% else %}/dashboard/ui/workout/{{ w.id }}{% endif %}"
                        class="flex items-center justify-between p-4 rounded-xl bg-navy-950 border border-gray-800
                               hover:border-gray-600 transition-colors group">
                         <div class="flex items-center space-x-4">
                             <span class="text-2xl">{{ w.sport_icon }}</span>
                             <div>
                                 <div class="font-medium text-white group-hover:text-blue-400 transition-colors">
-                                    {{ w.sport_type or 'Workout' | capitalize }}
+                                    {{ (w.sport_type or 'Workout') | capitalize }}
                                 </div>
                                 <div class="text-sm text-gray-400">
                                     {{ w.started_at.strftime('%b %d, %Y at %I:%M %p') }}
@@ -276,14 +277,17 @@
                                 <div class="text-xs text-gray-500">Distance</div>
                             </div>
                             {% endif %}
-                            <div>
+                            <div class="flex items-center space-x-1">
+                                {% for plat in w.platform_list %}
                                 <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium
-                                    {% if w.platform == 'strava' %}bg-strava/20 text-strava
-                                    {% elif w.platform == 'whoop' %}bg-whoop/20 text-whoop
-                                    {% elif w.platform == 'wahoo' %}bg-wahoo/20 text-wahoo
+                                    {% if plat == 'strava' %}bg-orange-500/15 text-orange-400
+                                    {% elif plat == 'whoop' %}bg-teal-500/15 text-teal-400
+                                    {% elif plat == 'wahoo' %}bg-blue-500/15 text-blue-400
+                                    {% elif plat == 'garmin' %}bg-green-500/15 text-green-400
                                     {% else %}bg-gray-700 text-gray-300{% endif %}">
-                                    {{ w.platform | capitalize }}
+                                    {{ plat | capitalize }}
                                 </span>
+                                {% endfor %}
                             </div>
                         </div>
                     </a>
