@@ -74,14 +74,51 @@ async def fetch_whoop_workout(workout_id: str, access_token: str) -> dict:
     return resp.json()
 
 
-def normalize_whoop_workout(data: dict) -> NormalizedWorkout:
-    """Convert a Whoop workout into a NormalizedWorkout."""
+async def fetch_whoop_recovery(access_token: str, start_date: str) -> dict | None:
+    """Fetch recovery data for a specific date from Whoop API v2.
+
+    start_date should be in YYYY-MM-DD format.
+    Recovery includes recovery_score and hrv_rmssd.
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{WHOOP_API_BASE}/recovery",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"start": f"{start_date}T00:00:00.000Z", "end": f"{start_date}T23:59:59.999Z"},
+        )
+    if resp.status_code != 200:
+        logger.warning("Whoop recovery fetch failed: %s %s", resp.status_code, resp.text)
+        return None
+
+    records = resp.json().get("records", [])
+    if not records:
+        return None
+
+    # Return the most recent recovery for the day
+    return records[0]
+
+
+def normalize_whoop_workout(data: dict, recovery_data: dict | None = None) -> NormalizedWorkout:
+    """Convert a Whoop workout into a NormalizedWorkout.
+
+    If recovery_data is provided, it includes recovery_score and hrv_rmssd.
+    """
     start = datetime.fromisoformat(data["start"].replace("Z", "+00:00"))
     end = datetime.fromisoformat(data["end"].replace("Z", "+00:00")) if data.get("end") else None
     duration = int((end - start).total_seconds()) if end else 0
 
     score = data.get("score", {})
     sport_id = data.get("sport_id", -1)
+
+    # Extract recovery metrics if available
+    recovery_score = None
+    hrv_rmssd = None
+    if recovery_data:
+        rec_score = recovery_data.get("score", {})
+        recovery_score = rec_score.get("recovery_score")
+        hrv_rmssd = rec_score.get("hrv_rmssd_milli")
+        if hrv_rmssd is not None:
+            hrv_rmssd = hrv_rmssd / 1000.0  # Convert from milliseconds to ms (RMSSD)
 
     return NormalizedWorkout(
         platform="whoop",
@@ -95,6 +132,8 @@ def normalize_whoop_workout(data: dict) -> NormalizedWorkout:
         avg_heart_rate=score.get("average_heart_rate"),
         max_heart_rate=score.get("max_heart_rate"),
         strain_score=score.get("strain"),
+        recovery_score=recovery_score,
+        hrv_rmssd=hrv_rmssd,
         raw_data=data,
     )
 

@@ -69,9 +69,14 @@ def _merge_field(current, new, prefer_new: bool = False):
 def merge_into_session(session: WorkoutSession, workout: NormalizedWorkout, platform: str):
     """Merge workout data into an existing session, taking the best value from each platform."""
 
-    # Expand time window to cover both
-    if workout.started_at < session.started_at:
+    # Start time: prefer Strava/Wahoo (user-initiated) over Whoop (auto-detected)
+    # Whoop often auto-detects workouts and may report an earlier start
+    if platform in ("strava", "wahoo", "garmin"):
         session.started_at = workout.started_at
+    elif workout.started_at < session.started_at and session.platforms in ("whoop", ""):
+        # Only use Whoop start if no other platform has set it yet
+        session.started_at = workout.started_at
+
     workout_end = workout.ended_at or (workout.started_at + timedelta(seconds=workout.duration_seconds or 0))
     if session.ended_at is None or workout_end > session.ended_at:
         session.ended_at = workout_end
@@ -112,6 +117,8 @@ def merge_into_session(session: WorkoutSession, workout: NormalizedWorkout, plat
     # Whoop-specific fields
     if platform == "whoop":
         session.strain_score = _merge_field(session.strain_score, workout.strain_score, prefer_new=True)
+        session.recovery_score = _merge_field(session.recovery_score, workout.recovery_score, prefer_new=True)
+        session.hrv_rmssd = _merge_field(session.hrv_rmssd, workout.hrv_rmssd, prefer_new=True)
 
     # Sport type: prefer Strava's classification (most granular)
     if platform == "strava" and workout.sport_type:
@@ -188,6 +195,8 @@ async def create_or_update_session(
         elevation_gain=workout.elevation_gain,
         avg_power_watts=workout.avg_power_watts,
         strain_score=workout.strain_score if workout.platform == "whoop" else None,
+        recovery_score=workout.recovery_score if workout.platform == "whoop" else None,
+        hrv_rmssd=workout.hrv_rmssd if workout.platform == "whoop" else None,
         platforms=workout.platform,
         email_scheduled_at=email_scheduled_at,
     )

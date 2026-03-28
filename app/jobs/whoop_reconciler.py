@@ -7,13 +7,13 @@ from sqlalchemy import select
 
 from app.database import async_session_factory
 from app.models.connection import PlatformConnection
-from app.platforms.whoop_client import get_whoop_token, normalize_whoop_workout
+from app.platforms.whoop_client import fetch_whoop_recovery, get_whoop_token, normalize_whoop_workout
 from app.services.token_manager import decrypt_token
 from app.services.workout_processor import process_workout
 
 logger = logging.getLogger(__name__)
 
-WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v1"
+WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v2"
 
 
 async def reconcile_whoop_workouts():
@@ -73,7 +73,13 @@ async def reconcile_whoop_workouts():
 
                 count = 0
                 for w in workouts:
-                    normalized = normalize_whoop_workout(w)
+                    # Fetch recovery for the workout date
+                    w_start = w.get("start", "")
+                    w_date = w_start[:10] if w_start else None
+                    recovery_data = None
+                    if w_date:
+                        recovery_data = await fetch_whoop_recovery(token, w_date)
+                    normalized = normalize_whoop_workout(w, recovery_data=recovery_data)
                     # process_workout handles deduplication via UNIQUE constraint
                     result = await process_workout(db, fresh_conn.user_id, normalized)
                     if result is not None:

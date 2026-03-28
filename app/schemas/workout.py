@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 
 class NormalizedWorkout(BaseModel):
-    platform: Literal["whoop", "strava", "wahoo"]
+    platform: Literal["whoop", "strava", "wahoo", "garmin"]
     platform_workout_id: str
     sport_type: str
     started_at: datetime
@@ -17,6 +17,8 @@ class NormalizedWorkout(BaseModel):
     avg_heart_rate: float | None = None
     max_heart_rate: float | None = None
     strain_score: float | None = None
+    recovery_score: float | None = None
+    hrv_rmssd: float | None = None
     elevation_gain: float | None = None
     avg_power_watts: float | None = None
     raw_data: dict = {}
