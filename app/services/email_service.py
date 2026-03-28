@@ -8,7 +8,7 @@ from pathlib import Path
 import pytz
 from jinja2 import Environment, FileSystemLoader
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from sendgrid.helpers.mail import Header, Mail
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -189,11 +189,15 @@ async def send_session_email(
     subject = f"Workout Summary — {sport_display} on {date_str}"
 
     message = Mail(
-        from_email=settings.sendgrid_from_email,
+        from_email=("workouts@prestigefitapp.com", "Prestige"),
         to_emails=user.email,
         subject=subject,
         html_content=html_content,
+        plain_text_content=f"Workout Summary — {sport_display} on {date_str}. Log in to view details: https://app.prestigefitapp.com/dashboard/ui",
     )
+    # Headers that help avoid spam filters
+    message.header = Header("List-Unsubscribe", "<https://app.prestigefitapp.com/dashboard/ui/preferences>")
+    message.header = Header("List-Unsubscribe-Post", "List-Unsubscribe=One-Click")
 
     log_entry = EmailLog(user_id=user.id)
 
