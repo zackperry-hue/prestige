@@ -25,7 +25,12 @@ async def save_workout(
     user_id: uuid.UUID,
     normalized: NormalizedWorkout,
 ) -> Workout | None:
-    """Save a normalized workout to the database. Returns None if duplicate."""
+    """Save a normalized workout to the database. Returns None if duplicate or invalid."""
+    # Safety guard: skip workouts with no duration
+    if not normalized.duration_seconds or normalized.duration_seconds <= 0:
+        logger.info("Skipping workout with zero duration from %s", normalized.platform)
+        return None
+
     existing = await db.execute(
         select(Workout).where(
             Workout.platform == normalized.platform,

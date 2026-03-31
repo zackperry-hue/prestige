@@ -39,6 +39,8 @@ async def _poll_single_connection(conn_id, user_id, last_poll_at):
                 workouts = await fetch_wahoo_workouts(token, created_after=since)
                 for w in workouts:
                     normalized = normalize_wahoo_workout(w)
+                    if normalized is None:
+                        continue  # Skip incomplete/phantom workouts
                     await process_workout(db, user_id, normalized)
 
                 conn.last_poll_at = datetime.now(UTC)
