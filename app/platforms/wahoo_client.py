@@ -79,6 +79,9 @@ async def fetch_wahoo_workouts(
             params=params,
         )
 
+    if resp.status_code == 429:
+        logger.warning("Wahoo rate limited (429), will retry next poll cycle")
+        return []
     if resp.status_code != 200:
         logger.error("Wahoo workouts fetch failed: %s %s", resp.status_code, resp.text)
         raise RuntimeError("Failed to fetch Wahoo workouts")

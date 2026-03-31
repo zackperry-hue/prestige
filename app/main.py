@@ -30,7 +30,7 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    scheduler.add_job(poll_wahoo_workouts, "interval", minutes=5, id="wahoo_poller")
+    scheduler.add_job(poll_wahoo_workouts, "interval", minutes=15, id="wahoo_poller")
     scheduler.add_job(poll_garmin_activities, "interval", minutes=5, id="garmin_poller")
     scheduler.add_job(refresh_expiring_tokens, "interval", minutes=30, id="token_refresher")
     scheduler.add_job(reconcile_whoop_workouts, "cron", hour=3, minute=17, id="whoop_reconciler")
