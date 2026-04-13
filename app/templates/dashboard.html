@@ -84,6 +84,7 @@
                                             hx-target="#platform-{{ p.key }}"
                                             hx-swap="outerHTML"
                                             hx-confirm="Disconnect {{ p.name }}?"
+                                            hx-headers='{"x-csrf-token": "{{ csrf_token }}"}'
                                             class="w-full text-left px-4 py-2.5 text-xs text-red-400 hover:bg-red-500/10 transition-colors flex items-center space-x-2">
                                         <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                             <path d="M18 6L6 18M6 6l12 12"/>
@@ -93,7 +94,7 @@
                                 </div>
                             </div>
                             {% else %}
-                            <a href="/auth/{{ p.key }}/connect?token={{ jwt_token }}"
+                            <a href="/auth/{{ p.key }}/connect"
                                class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-all hover:scale-105 inline-block"
                                style="background-color: {{ p.brand_color }};">
                                 Connect
@@ -184,7 +185,9 @@
                 <form hx-patch="/dashboard/ui/preferences"
                       hx-target="#prefs-status"
                       hx-swap="innerHTML"
+                      hx-headers='{"x-csrf-token": "{{ csrf_token }}"}'
                       class="space-y-4">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
                     <div>
                         <label class="block text-sm font-medium text-gray-300 mb-1">Unit System</label>

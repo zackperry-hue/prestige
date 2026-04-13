@@ -11,6 +11,7 @@
         </div>
 
         <form method="POST" action="/dashboard/ui/onboarding" class="space-y-8">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
             <!-- Step 1: Fitness Goals -->
             <div class="bg-navy-900 rounded-2xl p-6 border border-gray-800">

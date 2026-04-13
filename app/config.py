@@ -1,4 +1,8 @@
+import logging
+
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -38,7 +42,27 @@ class Settings(BaseSettings):
     # App
     app_base_url: str = "http://localhost:8000"
 
+    # Deployment
+    environment: str = "development"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()
+
+if settings.app_secret_key == "change-me-in-production" and settings.environment != "development":
+    raise RuntimeError(
+        "APP_SECRET_KEY must be set to a secure random value in production. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+
+if settings.app_secret_key == "change-me-in-production":
+    logger.warning("APP_SECRET_KEY is using the default value. Set it before deploying.")
+
+if not settings.token_encryption_key and settings.environment != "development":
+    raise RuntimeError(
+        "TOKEN_ENCRYPTION_KEY must be set in production. "
+        "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+    )
+if not settings.token_encryption_key:
+    logger.warning("TOKEN_ENCRYPTION_KEY is not set. OAuth token encryption will fail at runtime.")

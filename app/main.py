@@ -2,8 +2,13 @@ import logging
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from slowapi.errors import RateLimitExceeded
+
+from app.rate_limit import limiter
 
 from app.logging_config import setup_logging
 
@@ -45,7 +50,69 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Workout Tracker", version="0.1.0", lifespan=lifespan)
 
+# CSRF protection for all form-based endpoints
+from app.middleware.csrf import CSRFMiddleware
+app.add_middleware(CSRFMiddleware)
+
+app.state.limiter = limiter
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# ---------------------------------------------------------------------------
+# Global error handlers — branded HTML error pages
+# ---------------------------------------------------------------------------
+
+_error_templates = Jinja2Templates(directory="app/templates")
+
+_ERROR_MESSAGES = {
+    401: ("Session Expired", "Your session has expired. Please sign in again."),
+    403: ("Access Denied", "You don't have permission to access this page."),
+    404: ("Page Not Found", "The page you're looking for doesn't exist or has been moved."),
+    405: ("Method Not Allowed", "This action isn't supported."),
+    429: ("Too Many Requests", "You're making requests too quickly. Please wait a moment and try again."),
+}
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # Let API routes return JSON errors
+    if request.url.path.startswith("/api/") or request.url.path.startswith("/webhooks/"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    title, message = _ERROR_MESSAGES.get(exc.status_code, ("Error", str(exc.detail)))
+    return _error_templates.TemplateResponse(
+        request=request,
+        name="error.html",
+        context={"status_code": exc.status_code, "title": title, "message": message, "user": None},
+        status_code=exc.status_code,
+    )
+
+
+@app.exception_handler(500)
+async def server_error_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled server error on %s", request.url.path)
+    return _error_templates.TemplateResponse(
+        request=request,
+        name="error.html",
+        context={"status_code": 500, "title": "Something Went Wrong", "message": "An unexpected error occurred. Please try again later.", "user": None},
+        status_code=500,
+    )
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return _error_templates.TemplateResponse(
+        request=request,
+        name="error.html",
+        context={
+            "status_code": 429,
+            "title": "Too Many Requests",
+            "message": "You're making requests too quickly. Please wait a moment and try again.",
+            "user": None,
+        },
+        status_code=429,
+    )
+
 
 app.include_router(auth.router)
 app.include_router(dashboard.router)

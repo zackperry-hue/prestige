@@ -2,15 +2,51 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
+
+from jinja2 import Environment, FileSystemLoader
 
 from app.schemas.workout import NormalizedWorkout
 from app.services.email_service import (
     _format_distance,
     _format_duration,
+    _format_elevation,
     _format_pace,
-    render_workout_email,
+    _sport_type_display,
 )
 from app.services.workout_insights import Insight, WorkoutHighlights
+
+# Load the legacy single-workout template directly for render tests.
+# The production flow now uses render_session_email, but these tests validate
+# the legacy template is still intact for backward-compat.
+_template_dir = Path(__file__).parent.parent.parent / "app" / "templates"
+_jinja_env = Environment(loader=FileSystemLoader(str(_template_dir)), autoescape=True)
+
+
+def render_workout_email(user, workout, highlights):
+    """Test helper: render the legacy single-workout email template."""
+    template = _jinja_env.get_template("workout_summary.html")
+    return template.render(
+        display_name=user.display_name or user.email.split("@")[0],
+        platform=workout.platform,
+        sport_type_display=_sport_type_display(workout.sport_type),
+        workout_date_full=workout.started_at.strftime("%m/%d/%Y"),
+        workout_date_short=workout.started_at.strftime("%a %b %d"),
+        workout_time=workout.started_at.strftime("%I:%M %p"),
+        duration_display=_format_duration(workout.duration_seconds),
+        distance_display=_format_distance(workout.distance_meters),
+        pace_display=_format_pace(workout.distance_meters, workout.duration_seconds),
+        calories=workout.calories,
+        avg_heart_rate=workout.avg_heart_rate,
+        max_heart_rate=workout.max_heart_rate,
+        strain_score=workout.strain_score,
+        elevation_gain=_format_elevation(workout.elevation_gain),
+        avg_power_watts=workout.avg_power_watts,
+        insights=highlights.insights,
+        workouts_this_week=highlights.total_workouts_this_week,
+        workouts_this_month=highlights.total_workouts_this_month,
+        streak_days=highlights.streak_days,
+    )
 
 
 @dataclass
@@ -34,11 +70,15 @@ class TestFormatDuration:
 
 
 class TestFormatDistance:
+    def test_miles_default(self):
+        # Default unit_system is imperial
+        assert _format_distance(5012.3) == "3.11 mi"
+
     def test_kilometers(self):
-        assert _format_distance(5012.3) == "5.01 km"
+        assert _format_distance(5012.3, "metric") == "5.01 km"
 
     def test_meters(self):
-        assert _format_distance(800.0) == "800 m"
+        assert _format_distance(800.0, "metric") == "800 m"
 
     def test_none(self):
         assert _format_distance(None) is None
@@ -48,13 +88,19 @@ class TestFormatDistance:
 
 
 class TestFormatPace:
-    def test_normal_pace(self):
-        # 5km in 25 min = 5:00/km
-        assert _format_pace(5000.0, 1500) == "5:00"
+    def test_normal_pace_imperial(self):
+        # 5km in 25 min ≈ 8:03 /mi
+        result = _format_pace(5000.0, 1500)
+        assert result is not None
+        assert "/mi" in result
 
-    def test_fast_pace(self):
-        # 10km in 35 min = 3:30/km
-        assert _format_pace(10000.0, 2100) == "3:30"
+    def test_normal_pace_metric(self):
+        # 5km in 25 min = 5:00 /km
+        assert _format_pace(5000.0, 1500, "metric") == "5:00 /km"
+
+    def test_fast_pace_metric(self):
+        # 10km in 35 min = 3:30 /km
+        assert _format_pace(10000.0, 2100, "metric") == "3:30 /km"
 
     def test_no_distance(self):
         assert _format_pace(None, 1500) is None
@@ -106,7 +152,7 @@ class TestRenderWorkoutEmail:
         assert "03/25/2026" in html
         assert "Running" in html
         assert "strava" in html.lower()
-        assert "5.00 km" in html
+        assert "3.11 mi" in html
         assert "400" in html  # calories
         assert "155" in html  # avg HR
         assert "this week" in html

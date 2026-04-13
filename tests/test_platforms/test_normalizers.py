@@ -174,7 +174,7 @@ class TestWahooNormalizer:
     def test_cycling_workout(self):
         data = {
             "id": 55555,
-            "workout_type_id": 1,
+            "workout_type_id": 0,  # 0 = cycling in Wahoo's sport map
             "starts": "2026-03-25T06:00:00Z",
             "created_at": "2026-03-25T06:00:00Z",
             "workout_summary": {
@@ -203,7 +203,7 @@ class TestWahooNormalizer:
     def test_running_workout(self):
         data = {
             "id": 66666,
-            "workout_type_id": 12,
+            "workout_type_id": 1,  # 1 = running in Wahoo's sport map
             "starts": "2026-03-25T08:00:00Z",
             "workout_summary": {
                 "duration_active_accum": 2400,
@@ -219,7 +219,8 @@ class TestWahooNormalizer:
         assert result.distance_meters == 8000.0
         assert result.avg_power_watts is None
 
-    def test_empty_summary(self):
+    def test_empty_summary_returns_none(self):
+        """Workouts with no summary data (planned/phantom) are skipped."""
         data = {
             "id": 77777,
             "workout_type_id": 0,
@@ -228,10 +229,8 @@ class TestWahooNormalizer:
         }
         result = normalize_wahoo_workout(data)
 
-        assert result.sport_type == "other"
-        assert result.duration_seconds == 0
-        assert result.distance_meters is None
-        assert result.calories is None
+        # No duration means incomplete/phantom workout — normalizer returns None
+        assert result is None
 
     def test_falls_back_to_created_at(self):
         data = {

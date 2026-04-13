@@ -81,8 +81,12 @@ def _build_workout_context(
     profile: UserProfile | None = None,
 ) -> str:
     """Build a structured context block for Claude from session data."""
+    today = date.today()
+    day_name = today.strftime("%A")
+    tomorrow_name = (today + timedelta(days=1)).strftime("%A")
     lines = [
         f"Athlete name: {user_name}",
+        f"Today: {day_name} ({today.isoformat()}), tomorrow is {tomorrow_name}",
         f"Sport: {session.sport_type or 'workout'}",
         f"Platforms: {session.platforms}",
         f"Duration: {_format_duration_natural(session.duration_seconds)}",
@@ -155,7 +159,9 @@ Rules:
 - If the athlete has a weekly training target, reference their progress toward it
 - If experience level is provided, match your coaching tone accordingly (simpler for beginners, more technical for advanced)
 - Don't repeat data that will be shown in the stats section below
-- No sign-off or greeting — this drops into the middle of an email template"""
+- No sign-off or greeting — this drops into the middle of an email template
+- Do NOT label the workout intensity (tempo, threshold, easy, etc.) unless you have HR zone or power zone data — raw heart rate alone is not enough to classify effort
+- Use the day of the week to inform recovery advice — e.g. don't recommend rest before a Saturday or Sunday, which are typically big training days for endurance athletes"""
 
 
 async def generate_workout_narrative(
@@ -176,8 +182,8 @@ async def generate_workout_narrative(
     context = _build_workout_context(session, highlights, user_name, units, profile=profile)
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        message = client.messages.create(
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        message = await client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=300,
             system=SYSTEM_PROMPT,

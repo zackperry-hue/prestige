@@ -9,11 +9,15 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import Request
+
 from app.config import settings
 from app.database import get_db
 from app.models.connection import PlatformConnection
 from app.models.user import User
 from app.routers.auth import get_current_user
+from app.routers.ui import _get_user_from_cookie
+from app.services.oauth_state import generate_oauth_state, validate_oauth_state
 from app.services.token_manager import encrypt_token
 
 logger = logging.getLogger(__name__)
@@ -25,14 +29,14 @@ STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
 
 
 @router.get("/connect")
-async def strava_connect(token: str = Query(None), user: User = Depends(get_current_user)):
+async def strava_connect(user: User = Depends(get_current_user)):
     """Redirect user to Strava's OAuth authorization page."""
     params = {
         "client_id": settings.strava_client_id,
         "redirect_uri": settings.strava_redirect_uri,
         "response_type": "code",
         "scope": "read,activity:read_all",
-        "state": str(user.id),
+        "state": generate_oauth_state(str(user.id)),
         "approval_prompt": "auto",
     }
     return RedirectResponse(url=f"{STRAVA_AUTH_URL}?{urlencode(params)}")
@@ -40,12 +44,13 @@ async def strava_connect(token: str = Query(None), user: User = Depends(get_curr
 
 @router.get("/callback")
 async def strava_callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Exchange authorization code for access + refresh tokens."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             STRAVA_TOKEN_URL,
             data={
@@ -70,7 +75,14 @@ async def strava_callback(
     from datetime import UTC, datetime
 
     token_expires_at = datetime.fromtimestamp(expires_at, tz=UTC)
-    user_id = state
+    user_id = validate_oauth_state(state)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+
+    # Verify the authenticated user matches the state token
+    current_user = await _get_user_from_cookie(request, db)
+    if not current_user or str(current_user.id) != user_id:
+        raise HTTPException(status_code=403, detail="OAuth session mismatch")
 
     # Upsert connection
     result = await db.execute(

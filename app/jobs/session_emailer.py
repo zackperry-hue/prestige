@@ -23,6 +23,9 @@ from app.services.workout_insights import generate_session_highlights
 logger = logging.getLogger(__name__)
 
 
+MAX_EMAIL_ATTEMPTS = 3
+
+
 async def check_and_send_session_emails():
     """Check for sessions ready to email and send them."""
     async with async_session_factory() as db:
@@ -49,7 +52,8 @@ async def check_and_send_session_emails():
                     workouts = await get_session_workouts(db, session.id)
 
                     # Generate highlights using session data
-                    highlights = await generate_session_highlights(db, user.id, session)
+                    units = getattr(user, "unit_system", "imperial")
+                    highlights = await generate_session_highlights(db, user.id, session, units=units)
 
                     # Send unified email
                     success = await send_session_email(db, user, session, workouts, highlights)
@@ -62,9 +66,20 @@ async def check_and_send_session_emails():
                             session.id,
                             session.platforms,
                         )
+                    else:
+                        session.email_attempts = (session.email_attempts or 0) + 1
+                        if session.email_attempts >= MAX_EMAIL_ATTEMPTS:
+                            logger.warning(
+                                "Giving up on session %s after %d failed attempts",
+                                session.id,
+                                session.email_attempts,
+                            )
+                        await db.commit()
 
                 except Exception:
                     logger.exception("Failed to send email for session %s", session.id)
+                    session.email_attempts = (session.email_attempts or 0) + 1
+                    await db.commit()
 
         except Exception:
             logger.exception("Error in session emailer job")

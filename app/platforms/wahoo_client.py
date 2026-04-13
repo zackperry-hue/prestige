@@ -27,7 +27,7 @@ async def refresh_wahoo_token(conn: PlatformConnection, db: AsyncSession) -> str
 
     from app.config import settings
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             WAHOO_TOKEN_URL,
             data={
@@ -64,30 +64,42 @@ async def get_wahoo_token(conn: PlatformConnection, db: AsyncSession) -> str:
 async def fetch_wahoo_workouts(
     access_token: str,
     created_after: datetime | None = None,
-    page: int = 1,
     per_page: int = 50,
+    max_pages: int = 10,
 ) -> list[dict]:
-    """Fetch workouts from Wahoo API. Returns list of workout dicts."""
-    params: dict = {"page": page, "per_page": per_page}
-    if created_after:
-        params["created_after"] = created_after.isoformat()
+    """Fetch workouts from Wahoo API with pagination. Returns list of workout dicts."""
+    all_workouts: list[dict] = []
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{WAHOO_API_BASE}/workouts",
-            headers={"Authorization": f"Bearer {access_token}"},
-            params=params,
-        )
+    for page in range(1, max_pages + 1):
+        params: dict = {"page": page, "per_page": per_page}
+        if created_after:
+            params["created_after"] = created_after.isoformat()
 
-    if resp.status_code == 429:
-        logger.warning("Wahoo rate limited (429), will retry next poll cycle")
-        return []
-    if resp.status_code != 200:
-        logger.error("Wahoo workouts fetch failed: %s %s", resp.status_code, resp.text)
-        raise RuntimeError("Failed to fetch Wahoo workouts")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{WAHOO_API_BASE}/workouts",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params,
+            )
 
-    data = resp.json()
-    return data.get("workouts", data) if isinstance(data, dict) else data
+        if resp.status_code == 429:
+            logger.warning("Wahoo rate limited (429), will retry next poll cycle")
+            break
+        if resp.status_code != 200:
+            logger.error("Wahoo workouts fetch failed: %s %s", resp.status_code, resp.text)
+            raise RuntimeError("Failed to fetch Wahoo workouts")
+
+        data = resp.json()
+        workouts = data.get("workouts", data) if isinstance(data, dict) else data
+        if not workouts:
+            break
+        all_workouts.extend(workouts)
+
+        # If we got fewer than per_page, there are no more pages
+        if len(workouts) < per_page:
+            break
+
+    return all_workouts
 
 
 def normalize_wahoo_workout(data: dict) -> NormalizedWorkout | None:

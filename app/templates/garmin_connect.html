@@ -24,6 +24,7 @@
         {% endif %}
 
         <form method="POST" action="/auth/garmin/connect" class="space-y-4">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div>
                 <label class="block text-sm text-gray-400 mb-1">Garmin Email</label>
                 <input type="email" name="garmin_email" required

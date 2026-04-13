@@ -17,7 +17,7 @@ from app.platforms.strava_client import (
     get_strava_token,
     normalize_strava_activity,
 )
-from app.services.webhook_validator import validate_strava_verify_token
+from app.services.webhook_validator import validate_strava_verify_token, validate_strava_webhook_payload
 from app.services.workout_processor import process_workout
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,13 @@ async def strava_webhook(
     db: AsyncSession = Depends(get_db),
 ):
     """Receive Strava activity events. Return 200 immediately, process in background."""
+    body = await request.body()
+
+    # Validate payload structure to reject forged/garbage requests
+    if not validate_strava_webhook_payload(body):
+        logger.warning("Rejected invalid Strava webhook payload")
+        return Response(status_code=400)
+
     payload = await request.json()
 
     # Log the webhook event

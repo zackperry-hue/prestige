@@ -1,37 +1,67 @@
 """UI router: serves HTML pages with cookie-based session auth."""
 
 import logging
+import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
+
+import pytz
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from jose import JWTError, jwt
-import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
+from app.rate_limit import limiter
 from app.models.connection import PlatformConnection
+from app.models.password_reset import PasswordResetToken
 from app.models.user import User
 from app.models.user_profile import UserProfile
 from app.models.workout import Workout
 from app.models.workout_session import WorkoutSession
 from app.routers.auth import create_access_token
+from app.services.password import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["ui"])
 
-templates = Jinja2Templates(directory="app/templates")
+_base_templates = Jinja2Templates(directory="app/templates")
 
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
-def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+class _CSRFTemplates:
+    """Wrapper around Jinja2Templates that auto-injects csrf_token into context."""
+
+    def __init__(self, jinja_templates: Jinja2Templates):
+        self._templates = jinja_templates
+
+    def TemplateResponse(self, name_or_request=None, context_or_name=None, *, request: Request | None = None, name: str | None = None, context: dict | None = None, **kwargs):
+        # Support both calling conventions:
+        #   TemplateResponse(request=request, name="x.html", context={...})
+        #   TemplateResponse("x.html", {"request": request, ...})
+        if isinstance(name_or_request, str) and isinstance(context_or_name, dict):
+            # Old-style: TemplateResponse("template.html", {"request": req, ...})
+            name = name_or_request
+            context = context_or_name
+            request = context.get("request")
+        elif name_or_request is None:
+            # Keyword-only style
+            pass
+
+        ctx = context or {}
+        if request:
+            ctx["csrf_token"] = request.cookies.get("csrf_token", "")
+        return self._templates.TemplateResponse(request=request, name=name, context=ctx, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._templates, name)
+
+
+templates = _CSRFTemplates(_base_templates)
 
 SPORT_ICONS = {
     "cycling": "\U0001F6B4",
@@ -107,6 +137,7 @@ async def login_page(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/dashboard/ui/login", response_class=HTMLResponse)
+@limiter.limit("5/minute")
 async def do_login(
     request: Request,
     email: str = Form(...),
@@ -128,6 +159,7 @@ async def do_login(
         key="session_token",
         value=token,
         httponly=True,
+        secure=settings.environment != "development",
         samesite="lax",
         max_age=settings.jwt_expire_minutes * 60,
     )
@@ -135,6 +167,7 @@ async def do_login(
 
 
 @router.post("/dashboard/ui/register", response_class=HTMLResponse)
+@limiter.limit("3/minute")
 async def do_register(
     request: Request,
     email: str = Form(...),
@@ -171,6 +204,7 @@ async def do_register(
         key="session_token",
         value=token,
         httponly=True,
+        secure=settings.environment != "development",
         samesite="lax",
         max_age=settings.jwt_expire_minutes * 60,
     )
@@ -182,6 +216,132 @@ async def logout():
     response = RedirectResponse(url="/", status_code=302)
     response.delete_cookie("session_token")
     return response
+
+
+# ---------------------------------------------------------------------------
+# Forgot / Reset Password
+# ---------------------------------------------------------------------------
+
+@router.get("/forgot-password", response_class=HTMLResponse)
+async def forgot_password_page(request: Request):
+    return templates.TemplateResponse(request=request, name="forgot_password.html", context={
+        "user": None, "message": None, "error": None,
+    })
+
+
+@router.post("/forgot-password", response_class=HTMLResponse)
+@limiter.limit("3/minute")
+async def do_forgot_password(
+    request: Request,
+    email: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    # Always show the same message to prevent email enumeration
+    success_msg = "If an account exists with that email, we've sent a password reset link."
+
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if user:
+        # Invalidate any existing tokens for this user
+        existing = await db.execute(
+            select(PasswordResetToken).where(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+            )
+        )
+        for tok in existing.scalars().all():
+            tok.used_at = datetime.now(timezone.utc)
+
+        # Create new token
+        token = secrets.token_urlsafe(32)
+        reset_token = PasswordResetToken(
+            user_id=user.id,
+            token=token,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        db.add(reset_token)
+        await db.commit()
+
+        # Send email
+        reset_url = f"{settings.app_base_url}/reset-password?token={token}"
+        from app.services.email_service import send_password_reset_email
+        send_password_reset_email(user.email, reset_url)
+
+    return templates.TemplateResponse(request=request, name="forgot_password.html", context={
+        "user": None, "message": success_msg, "error": None,
+    })
+
+
+@router.get("/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request, token: str = "", db: AsyncSession = Depends(get_db)):
+    if not token:
+        return templates.TemplateResponse(request=request, name="reset_password.html", context={
+            "user": None, "token": "", "error": "Invalid or missing reset link.",
+        })
+
+    result = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token == token,
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    reset_token = result.scalar_one_or_none()
+
+    if not reset_token:
+        return templates.TemplateResponse(request=request, name="reset_password.html", context={
+            "user": None, "token": "", "error": "This reset link is invalid or has expired. Please request a new one.",
+        })
+
+    return templates.TemplateResponse(request=request, name="reset_password.html", context={
+        "user": None, "token": token, "error": None,
+    })
+
+
+@router.post("/reset-password", response_class=HTMLResponse)
+@limiter.limit("5/minute")
+async def do_reset_password(
+    request: Request,
+    token: str = Form(...),
+    password: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token == token,
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    reset_token = result.scalar_one_or_none()
+
+    if not reset_token:
+        return templates.TemplateResponse(request=request, name="reset_password.html", context={
+            "user": None, "token": "", "error": "This reset link is invalid or has expired. Please request a new one.",
+        })
+
+    if len(password) < 8:
+        return templates.TemplateResponse(request=request, name="reset_password.html", context={
+            "user": None, "token": token, "error": "Password must be at least 8 characters.",
+        })
+
+    # Update the user's password
+    user_result = await db.execute(select(User).where(User.id == reset_token.user_id))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        return templates.TemplateResponse(request=request, name="reset_password.html", context={
+            "user": None, "token": "", "error": "Account not found.",
+        })
+
+    user.password_hash = hash_password(password)
+    reset_token.used_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    # Redirect to login with success message
+    return templates.TemplateResponse(request=request, name="login.html", context={
+        "error": None, "success": "Password reset successfully. Sign in with your new password.", "mode": "login",
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -245,14 +405,10 @@ async def dashboard_page(request: Request, db: AsyncSession = Depends(get_db)):
     workout_list.sort(key=lambda x: x.started_at, reverse=True)
     workout_list = workout_list[:10]
 
-    # Build JWT token for OAuth connect links
-    jwt_token = request.cookies.get("session_token", "")
-
     return templates.TemplateResponse(request=request, name="dashboard.html", context={
         "user": user,
         "connected_platforms": connected_platforms,
         "workouts": workout_list,
-        "jwt_token": jwt_token,
     })
 
 
@@ -281,8 +437,6 @@ async def disconnect_platform(platform: str, request: Request, db: AsyncSession 
         conn.is_active = False
         await db.commit()
 
-    jwt_token = request.cookies.get("session_token", "")
-
     # Platform display config
     config = {
         "strava": {"name": "Strava", "brand_color": "#FC4C02"},
@@ -303,7 +457,7 @@ async def disconnect_platform(platform: str, request: Request, db: AsyncSession 
             <span class="text-xs text-gray-500">Not Connected</span>
         </div>
         <div>
-            <a href="/auth/{platform}/connect?token={jwt_token}"
+            <a href="/auth/{platform}/connect"
                class="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-colors inline-block"
                style="background-color: {p['brand_color']}; opacity: 0.9;"
                onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.9'">
@@ -332,6 +486,8 @@ async def save_preferences(request: Request, db: AsyncSession = Depends(get_db))
     if unit_system and unit_system in ("metric", "imperial"):
         user.unit_system = unit_system
     if timezone:
+        if timezone not in pytz.all_timezones:
+            raise HTTPException(status_code=400, detail="Invalid timezone")
         user.timezone = timezone
     user.email_enabled = email_enabled == "true"
 
@@ -376,7 +532,14 @@ async def save_onboarding(request: Request, db: AsyncSession = Depends(get_db)):
     primary_sports = ",".join(form.getlist("primary_sports"))
     experience_level = form.get("experience_level") or None
     weekly_target_str = form.get("weekly_target")
-    weekly_target = int(weekly_target_str) if weekly_target_str else None
+    weekly_target = None
+    if weekly_target_str:
+        try:
+            weekly_target = int(weekly_target_str)
+            if weekly_target < 0 or weekly_target > 50:
+                weekly_target = None
+        except ValueError:
+            weekly_target = None
     target_event_name = form.get("target_event_name") or None
     target_event_date = form.get("target_event_date") or None
     additional_context = form.get("additional_context") or None
@@ -435,7 +598,7 @@ async def session_detail_page(session_id: str, request: Request, db: AsyncSessio
 
     # Load all workouts in this session
     result = await db.execute(
-        select(Workout).where(Workout.session_id == sid).order_by(Workout.platform)
+        select(Workout).where(Workout.session_id == sid, Workout.user_id == user.id).order_by(Workout.platform)
     )
     session_workouts = result.scalars().all()
 
@@ -476,7 +639,7 @@ async def workout_detail_page(workout_id: str, request: Request, db: AsyncSessio
     session_elevation_display = None
     if workout.session_id:
         result = await db.execute(
-            select(WorkoutSession).where(WorkoutSession.id == workout.session_id)
+            select(WorkoutSession).where(WorkoutSession.id == workout.session_id, WorkoutSession.user_id == user.id)
         )
         session = result.scalar_one_or_none()
         if session:

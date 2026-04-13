@@ -103,6 +103,55 @@ def _localize_time(dt: datetime, timezone_str: str) -> datetime:
         return dt
 
 
+def send_password_reset_email(to_email: str, reset_url: str) -> bool:
+    """Send a password reset email. Returns True on success."""
+    if not settings.sendgrid_api_key:
+        logger.warning("SENDGRID_API_KEY not set, cannot send reset email")
+        return False
+
+    html_content = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+        <div style="text-align: center; margin-bottom: 32px;">
+            <h1 style="color: #ffffff; font-size: 24px; margin: 0;">Prestige</h1>
+        </div>
+        <div style="background: #1a1f3a; border-radius: 16px; padding: 32px; border: 1px solid #2d3354;">
+            <h2 style="color: #ffffff; font-size: 20px; margin: 0 0 16px;">Reset Your Password</h2>
+            <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
+                We received a request to reset your password. Click the button below to set a new one.
+                This link expires in 1 hour.
+            </p>
+            <div style="text-align: center; margin: 24px 0;">
+                <a href="{reset_url}"
+                   style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none;
+                          padding: 12px 32px; border-radius: 8px; font-weight: 600; font-size: 14px;">
+                    Reset Password
+                </a>
+            </div>
+            <p style="color: #6b7280; font-size: 12px; line-height: 1.5; margin: 24px 0 0;">
+                If you didn't request this, you can safely ignore this email. Your password won't change.
+            </p>
+        </div>
+    </div>
+    """
+
+    message = Mail(
+        from_email=("workouts@prestigefitapp.com", "Prestige"),
+        to_emails=to_email,
+        subject="Reset your Prestige password",
+        html_content=html_content,
+        plain_text_content=f"Reset your Prestige password: {reset_url}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.",
+    )
+
+    try:
+        sg = SendGridAPIClient(settings.sendgrid_api_key)
+        response = sg.send(message)
+        logger.info("Sent password reset email to %s (status %s)", to_email, response.status_code)
+        return True
+    except Exception:
+        logger.exception("Failed to send password reset email to %s", to_email)
+        return False
+
+
 def render_session_email(
     user: User,
     session: WorkoutSession,
@@ -196,8 +245,8 @@ async def send_session_email(
         plain_text_content=f"Workout Summary — {sport_display} on {date_str}. Log in to view details: https://app.prestigefitapp.com/dashboard/ui",
     )
     # Headers that help avoid spam filters
-    message.header = Header("List-Unsubscribe", "<https://app.prestigefitapp.com/dashboard/ui/preferences>")
-    message.header = Header("List-Unsubscribe-Post", "List-Unsubscribe=One-Click")
+    message.add_header(Header("List-Unsubscribe", "<https://app.prestigefitapp.com/dashboard/ui/preferences>"))
+    message.add_header(Header("List-Unsubscribe-Post", "List-Unsubscribe=One-Click"))
 
     log_entry = EmailLog(user_id=user.id)
 

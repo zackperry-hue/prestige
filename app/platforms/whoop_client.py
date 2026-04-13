@@ -27,7 +27,7 @@ async def refresh_whoop_token(conn: PlatformConnection, db: AsyncSession) -> str
 
     from app.config import settings
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             WHOOP_TOKEN_URL,
             data={
@@ -63,7 +63,7 @@ async def get_whoop_token(conn: PlatformConnection, db: AsyncSession) -> str:
 
 async def fetch_whoop_workout(workout_id: str, access_token: str) -> dict:
     """Fetch a single workout from the Whoop API v2."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
             f"{WHOOP_API_BASE}/activity/workout/{workout_id}",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -80,7 +80,7 @@ async def fetch_whoop_recovery(access_token: str, start_date: str) -> dict | Non
     start_date should be in YYYY-MM-DD format.
     Recovery includes recovery_score and hrv_rmssd.
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
             f"{WHOOP_API_BASE}/recovery",
             headers={"Authorization": f"Bearer {access_token}"},

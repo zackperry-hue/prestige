@@ -9,11 +9,15 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from fastapi import Request
+
 from app.config import settings
 from app.database import get_db
 from app.models.connection import PlatformConnection
 from app.models.user import User
 from app.routers.auth import get_current_user
+from app.routers.ui import _get_user_from_cookie
+from app.services.oauth_state import generate_oauth_state, validate_oauth_state
 from app.services.token_manager import encrypt_token
 
 logger = logging.getLogger(__name__)
@@ -25,26 +29,27 @@ WHOOP_TOKEN_URL = "https://api.prod.whoop.com/oauth/oauth2/token"
 
 
 @router.get("/connect")
-async def whoop_connect(token: str = Query(None), user: User = Depends(get_current_user)):
+async def whoop_connect(user: User = Depends(get_current_user)):
     """Redirect user to Whoop's OAuth authorization page."""
     params = {
         "client_id": settings.whoop_client_id,
         "redirect_uri": settings.whoop_redirect_uri,
         "response_type": "code",
         "scope": "read:workout read:cycles read:profile offline",
-        "state": str(user.id),
+        "state": generate_oauth_state(str(user.id)),
     }
     return RedirectResponse(url=f"{WHOOP_AUTH_URL}?{urlencode(params)}")
 
 
 @router.get("/callback")
 async def whoop_callback(
+    request: Request,
     code: str = Query(...),
     state: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Exchange authorization code for access + refresh tokens."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             WHOOP_TOKEN_URL,
             data={
@@ -68,11 +73,18 @@ async def whoop_callback(
     from datetime import UTC, datetime, timedelta
 
     token_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
-    user_id = state
+    user_id = validate_oauth_state(state)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+
+    # Verify the authenticated user matches the state token
+    current_user = await _get_user_from_cookie(request, db)
+    if not current_user or str(current_user.id) != user_id:
+        raise HTTPException(status_code=403, detail="OAuth session mismatch")
 
     # Fetch user profile to get Whoop user ID
     whoop_user_id = ""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         profile_resp = await client.get(
             "https://api.prod.whoop.com/developer/v1/user/profile/basic",
             headers={"Authorization": f"Bearer {access_token}"},

@@ -38,8 +38,9 @@ async def find_matching_session(
     workout_start = workout.started_at
     workout_end = workout.ended_at or (workout_start + timedelta(seconds=workout.duration_seconds or 0))
 
-    result = await db.execute(
-        select(WorkoutSession).where(
+    stmt = (
+        select(WorkoutSession)
+        .where(
             WorkoutSession.user_id == user_id,
             # Overlapping time window: session start within window of workout, or vice versa
             or_(
@@ -52,8 +53,12 @@ async def find_matching_session(
                     WorkoutSession.ended_at <= workout_end + window,
                 ),
             ),
-        ).order_by(WorkoutSession.started_at.desc()).limit(1)
+        )
+        .order_by(WorkoutSession.started_at.desc())
+        .limit(1)
+        .with_for_update()
     )
+    result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
 
@@ -151,6 +156,19 @@ async def create_or_update_session(
         )
         merge_into_session(existing_session, workout, workout.platform)
 
+        # Schedule email if not already scheduled (e.g. first workout was historical)
+        if existing_session.email_scheduled_at is None and existing_session.email_sent_at is None:
+            conn_result = await db.execute(
+                select(PlatformConnection).where(
+                    PlatformConnection.user_id == user_id,
+                    PlatformConnection.platform == workout.platform,
+                )
+            )
+            connection = conn_result.scalar_one_or_none()
+            if connection and workout.started_at >= connection.created_at:
+                existing_session.email_scheduled_at = datetime.now(UTC) + timedelta(minutes=EMAIL_DELAY_MINUTES)
+                logger.info("Scheduled email for merged session %s", existing_session.id)
+
         # Link the workout to this session
         await db.execute(
             update(Workout).where(Workout.id == workout_id).values(session_id=existing_session.id)
@@ -219,6 +237,9 @@ async def create_or_update_session(
     return session
 
 
+MAX_EMAIL_ATTEMPTS = 3
+
+
 async def get_sessions_ready_to_email(db: AsyncSession) -> list[WorkoutSession]:
     """Find sessions where the email delay has passed and email hasn't been sent."""
     now = datetime.now(UTC)
@@ -226,6 +247,7 @@ async def get_sessions_ready_to_email(db: AsyncSession) -> list[WorkoutSession]:
         select(WorkoutSession).where(
             WorkoutSession.email_scheduled_at <= now,
             WorkoutSession.email_sent_at.is_(None),
+            WorkoutSession.email_attempts < MAX_EMAIL_ATTEMPTS,
         )
     )
     return list(result.scalars().all())

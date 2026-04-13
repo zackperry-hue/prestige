@@ -67,8 +67,10 @@ def fetch_garmin_activities(client: Garmin, start_date: str, end_date: str) -> l
 
 def normalize_garmin_activity(data: dict) -> NormalizedWorkout:
     """Convert a Garmin activity into a NormalizedWorkout."""
-    # Parse start time
-    start_str = data.get("startTimeLocal") or data.get("startTimeGMT", "")
+    # Parse start time — prefer GMT timestamp to avoid timezone confusion
+    # Garmin returns both startTimeLocal and startTimeGMT; local is the user's
+    # wall-clock time which we must NOT treat as UTC.
+    start_str = data.get("startTimeGMT") or data.get("startTimeLocal", "")
     if start_str:
         # Garmin returns ISO format like "2026-03-27 17:30:00"
         try:
@@ -76,8 +78,10 @@ def normalize_garmin_activity(data: dict) -> NormalizedWorkout:
             if started_at.tzinfo is None:
                 started_at = started_at.replace(tzinfo=UTC)
         except ValueError:
+            logger.error("Failed to parse Garmin datetime: %s", start_str)
             started_at = datetime.now(UTC)
     else:
+        logger.warning("No timestamp in Garmin activity %s, using current time", data.get("activityId"))
         started_at = datetime.now(UTC)
 
     # Duration in seconds

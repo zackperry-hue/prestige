@@ -24,7 +24,7 @@ async def refresh_strava_token(conn: PlatformConnection, db: AsyncSession) -> st
 
     from app.config import settings
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             STRAVA_TOKEN_URL,
             data={
@@ -59,7 +59,7 @@ async def get_strava_token(conn: PlatformConnection, db: AsyncSession) -> str:
 
 async def fetch_strava_activity(activity_id: int | str, access_token: str) -> dict:
     """Fetch a single activity from the Strava API."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
             f"{STRAVA_API_BASE}/activities/{activity_id}",
             headers={"Authorization": f"Bearer {access_token}"},
