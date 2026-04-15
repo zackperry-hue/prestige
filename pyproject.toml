@@ -30,6 +30,7 @@ dependencies = [
     "anthropic>=0.42.0",
     "garminconnect>=0.2.40",
     "pytz>=2024.1",
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]
