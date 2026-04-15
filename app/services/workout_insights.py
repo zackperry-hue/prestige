@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.workout import Workout
+from app.models.workout_session import WorkoutSession
 from app.schemas.workout import NormalizedWorkout
 
 logger = logging.getLogger(__name__)
@@ -51,18 +52,40 @@ def _format_duration_delta(seconds: int) -> str:
     return f"{abs_seconds}s"
 
 
-def _format_pace(meters: float, seconds: int) -> float | None:
-    """Calculate pace in min/km. Returns None if no distance."""
+def _format_pace(meters: float, seconds: int, units: str = "metric") -> float | None:
+    """Calculate pace in min/km or min/mi. Returns None if no distance."""
     if not meters or meters <= 0 or seconds <= 0:
         return None
+    if units == "imperial":
+        miles = meters / 1609.34
+        return (seconds / 60) / miles
     km = meters / 1000
     return (seconds / 60) / km
+
+
+def _format_speed(meters: float, seconds: int, units: str = "imperial") -> float | None:
+    """Calculate speed in mph or km/h. Returns None if no distance."""
+    if not meters or meters <= 0 or seconds <= 0:
+        return None
+    hours = seconds / 3600
+    if units == "imperial":
+        miles = meters / 1609.34
+        return miles / hours
+    km = meters / 1000
+    return km / hours
+
+
+# Sports where pace (min/mi, min/km) makes sense
+_PACE_SPORTS = {"running", "run", "trail_running", "walking", "walk", "hiking", "hike"}
+# Sports where speed (mph, km/h) makes sense
+_SPEED_SPORTS = {"cycling", "ride", "virtual_ride", "mountain_biking", "gravel_cycling", "e_bike_ride"}
 
 
 async def generate_highlights(
     db: AsyncSession,
     user_id: uuid.UUID,
     workout: NormalizedWorkout,
+    units: str = "imperial",
 ) -> WorkoutHighlights:
     """Generate insights by comparing this workout to the user's history."""
     highlights = WorkoutHighlights()
@@ -104,17 +127,17 @@ async def generate_highlights(
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     week_count = await db.execute(
-        select(func.count(Workout.id)).where(
-            Workout.user_id == user_id,
-            Workout.started_at >= week_start,
+        select(func.count(WorkoutSession.id)).where(
+            WorkoutSession.user_id == user_id,
+            WorkoutSession.started_at >= week_start,
         )
     )
     highlights.total_workouts_this_week = week_count.scalar() or 0
 
     month_count = await db.execute(
-        select(func.count(Workout.id)).where(
-            Workout.user_id == user_id,
-            Workout.started_at >= month_start,
+        select(func.count(WorkoutSession.id)).where(
+            WorkoutSession.user_id == user_id,
+            WorkoutSession.started_at >= month_start,
         )
     )
     highlights.total_workouts_this_month = month_count.scalar() or 0
@@ -160,24 +183,46 @@ async def generate_highlights(
                     direction="up",
                 ))
 
-        # Pace comparison (for distance-based workouts)
-        current_pace = _format_pace(workout.distance_meters, workout.duration_seconds)
-        prev_pace = _format_pace(prev.distance_meters, prev.duration_seconds)
-        if current_pace and prev_pace:
-            pace_delta = current_pace - prev_pace
-            if abs(pace_delta) > 0.05:  # only if meaningful difference
-                if pace_delta < 0:
-                    highlights.insights.append(Insight(
-                        label="Pace",
-                        message=f"{abs(pace_delta):.2f} min/km faster than last time",
-                        direction="up",
-                    ))
-                else:
-                    highlights.insights.append(Insight(
-                        label="Pace",
-                        message=f"{pace_delta:.2f} min/km slower than last time",
-                        direction="down",
-                    ))
+        # Pace/speed comparison (sport-appropriate units)
+        sport = (workout.sport_type or "").lower()
+        if sport in _PACE_SPORTS:
+            pace_unit = "min/mi" if units == "imperial" else "min/km"
+            current_pace = _format_pace(workout.distance_meters, workout.duration_seconds, units)
+            prev_pace = _format_pace(prev.distance_meters, prev.duration_seconds, units)
+            if current_pace and prev_pace:
+                pace_delta = current_pace - prev_pace
+                if abs(pace_delta) > 0.05:
+                    if pace_delta < 0:
+                        highlights.insights.append(Insight(
+                            label="Pace",
+                            message=f"{abs(pace_delta):.2f} {pace_unit} faster than last time",
+                            direction="up",
+                        ))
+                    else:
+                        highlights.insights.append(Insight(
+                            label="Pace",
+                            message=f"{pace_delta:.2f} {pace_unit} slower than last time",
+                            direction="down",
+                        ))
+        elif sport in _SPEED_SPORTS:
+            speed_unit = "mph" if units == "imperial" else "km/h"
+            current_speed = _format_speed(workout.distance_meters, workout.duration_seconds, units)
+            prev_speed = _format_speed(prev.distance_meters, prev.duration_seconds, units)
+            if current_speed and prev_speed:
+                speed_delta = current_speed - prev_speed
+                if abs(speed_delta) > 0.2:
+                    if speed_delta > 0:
+                        highlights.insights.append(Insight(
+                            label="Speed",
+                            message=f"{abs(speed_delta):.1f} {speed_unit} faster than last time",
+                            direction="up",
+                        ))
+                    else:
+                        highlights.insights.append(Insight(
+                            label="Speed",
+                            message=f"{abs(speed_delta):.1f} {speed_unit} slower than last time",
+                            direction="down",
+                        ))
 
         # Distance comparison
         if workout.distance_meters and prev.distance_meters and prev.distance_meters > 0:
@@ -294,6 +339,7 @@ async def generate_session_highlights(
     db: AsyncSession,
     user_id: uuid.UUID,
     session,  # WorkoutSession
+    units: str = "imperial",
 ) -> WorkoutHighlights:
     """Generate insights for a merged session using the same logic as single workouts.
 
@@ -318,7 +364,7 @@ async def generate_session_highlights(
         raw_data={},
     )
 
-    highlights = await generate_highlights(db, user_id, pseudo_workout)
+    highlights = await generate_highlights(db, user_id, pseudo_workout, units=units)
 
     # Add cross-platform insight if multiple sources contributed
     platforms = [p for p in session.platforms.split(",") if p]
