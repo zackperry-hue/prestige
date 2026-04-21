@@ -54,42 +54,48 @@ def _is_exempt(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in EXEMPT_PREFIXES)
 
 
+def _set_csrf_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=token,
+        httponly=False,  # JS needs to read it for HTMX
+        secure=settings.environment != "development",
+        samesite="lax",
+        max_age=60 * 60 * 24,  # 24 hours
+    )
+
+
 class CSRFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # Skip CSRF for exempt paths
         if _is_exempt(request.url.path):
             return await call_next(request)
 
-        # Skip safe methods — just ensure a token cookie exists
+        cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+
+        # Safe methods: make sure a token is available to templates, generating
+        # one up-front if the cookie is missing so the template and the
+        # response cookie agree on the same value.
         if request.method not in UNSAFE_METHODS:
+            needs_cookie = not cookie_token
+            if needs_cookie:
+                cookie_token = _generate_csrf_token()
+            request.state.csrf_token = cookie_token
             response = await call_next(request)
-            # Set cookie if not already present
-            if CSRF_COOKIE_NAME not in request.cookies:
-                token = _generate_csrf_token()
-                response.set_cookie(
-                    key=CSRF_COOKIE_NAME,
-                    value=token,
-                    httponly=False,  # JS needs to read it for HTMX
-                    secure=settings.environment != "development",
-                    samesite="lax",
-                    max_age=60 * 60 * 24,  # 24 hours
-                )
+            if needs_cookie:
+                _set_csrf_cookie(response, cookie_token)
             return response
 
-        # Validate CSRF for unsafe methods
-        cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+        # Unsafe methods: validate
         if not cookie_token:
             logger.warning("CSRF: missing cookie on %s %s", request.method, request.url.path)
             return Response(status_code=403, content="CSRF validation failed")
 
         # Check header first (for HTMX/AJAX requests), then form field
         submitted_token = request.headers.get(CSRF_HEADER_NAME)
-
         if not submitted_token:
-            # Need to peek at form data — cache it for the route handler
             content_type = request.headers.get("content-type", "")
             if "form" in content_type:
-                # Read form and cache the body so downstream handlers can re-read it
                 form = await request.form()
                 submitted_token = form.get(CSRF_FIELD_NAME)
 
@@ -97,17 +103,12 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             logger.warning("CSRF: token mismatch on %s %s", request.method, request.url.path)
             return Response(status_code=403, content="CSRF validation failed")
 
-        response = await call_next(request)
-
-        # Rotate token after successful unsafe request
+        # Rotate BEFORE the handler runs so any re-rendered form (e.g. the
+        # error page on a failed login) embeds the new token that will match
+        # the cookie we set on the response.
         new_token = _generate_csrf_token()
-        response.set_cookie(
-            key=CSRF_COOKIE_NAME,
-            value=new_token,
-            httponly=False,
-            secure=settings.environment != "development",
-            samesite="lax",
-            max_age=60 * 60 * 24,
-        )
+        request.state.csrf_token = new_token
 
+        response = await call_next(request)
+        _set_csrf_cookie(response, new_token)
         return response

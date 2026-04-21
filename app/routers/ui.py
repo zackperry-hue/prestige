@@ -54,7 +54,12 @@ class _CSRFTemplates:
 
         ctx = context or {}
         if request:
-            ctx["csrf_token"] = request.cookies.get("csrf_token", "")
+            # Prefer the middleware-set token (which matches the cookie that
+            # will be sent on this response) over the incoming cookie value.
+            ctx["csrf_token"] = (
+                getattr(request.state, "csrf_token", None)
+                or request.cookies.get("csrf_token", "")
+            )
         return self._templates.TemplateResponse(request=request, name=name, context=ctx, **kwargs)
 
     def __getattr__(self, name):
