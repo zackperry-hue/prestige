@@ -36,11 +36,12 @@ async def whoop_webhook(
     """Receive Whoop webhook events. Validate HMAC, return 200, process in background."""
     body = await request.body()
 
-    # Validate signature
-    if x_whoop_signature and not validate_whoop_signature(
+    # Require a valid HMAC signature. A missing header was previously treated
+    # as "no check," which let any client POST unauthenticated events.
+    if not x_whoop_signature or not validate_whoop_signature(
         body, x_whoop_signature_timestamp, x_whoop_signature
     ):
-        logger.warning("Invalid Whoop webhook signature")
+        logger.warning("Invalid or missing Whoop webhook signature")
         return Response(status_code=401)
 
     payload = await request.json()

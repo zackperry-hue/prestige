@@ -76,14 +76,19 @@ async def strava_webhook(
             _process_strava_activity, activity_id, owner_id, event.id
         )
 
-    # Handle deauthorization
+    # NOTE: Strava does not HMAC-sign webhook events, so the payload is
+    # effectively unauthenticated. We intentionally do NOT trust a
+    # deauthorization event from the webhook body — otherwise a forged POST
+    # with a known athlete_id could DoS a user's Strava integration.
+    # Real deauthorizations are detected when the next token refresh fails
+    # (strava_client.refresh_strava_token sets is_active=False on 4xx).
     if aspect_type == "update" and payload.get("updates", {}).get("authorized") == "false":
         owner_id = str(payload.get("owner_id"))
-        conn = await get_connection_by_athlete_id(owner_id, db)
-        if conn:
-            conn.is_active = False
-            await db.commit()
-            logger.info("Deactivated Strava connection for athlete %s", owner_id)
+        logger.info(
+            "Received Strava deauthorization event for athlete %s "
+            "(ignored — deactivation happens on next refresh failure)",
+            owner_id,
+        )
 
     return Response(status_code=200)
 

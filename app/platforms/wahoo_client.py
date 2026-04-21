@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.connection import PlatformConnection
 from app.platforms.sport_type_map import normalize_sport_type
 from app.schemas.workout import NormalizedWorkout
+from app.services.log_redaction import redact_secrets
 from app.services.token_manager import decrypt_token, encrypt_token
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ async def refresh_wahoo_token(conn: PlatformConnection, db: AsyncSession) -> str
         )
 
     if resp.status_code != 200:
-        logger.error("Wahoo token refresh failed: %s", resp.text)
+        logger.error("Wahoo token refresh failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
         conn.is_active = False
         await db.commit()
         raise RuntimeError("Failed to refresh Wahoo token")
@@ -86,7 +87,7 @@ async def fetch_wahoo_workouts(
             logger.warning("Wahoo rate limited (429), will retry next poll cycle")
             break
         if resp.status_code != 200:
-            logger.error("Wahoo workouts fetch failed: %s %s", resp.status_code, resp.text)
+            logger.error("Wahoo workouts fetch failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
             raise RuntimeError("Failed to fetch Wahoo workouts")
 
         data = resp.json()

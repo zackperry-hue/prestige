@@ -17,6 +17,7 @@ from app.models.connection import PlatformConnection
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.routers.ui import _get_user_from_cookie
+from app.services.log_redaction import redact_secrets
 from app.services.oauth_state import generate_oauth_state, validate_oauth_state
 from app.services.token_manager import encrypt_token
 
@@ -62,7 +63,7 @@ async def strava_callback(
         )
 
     if resp.status_code != 200:
-        logger.error("Strava token exchange failed: %s", resp.text)
+        logger.error("Strava token exchange failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
         raise HTTPException(status_code=400, detail="Failed to connect Strava")
 
     data = resp.json()

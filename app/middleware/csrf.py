@@ -25,11 +25,13 @@ CSRF_FIELD_NAME = "csrf_token"
 CSRF_HEADER_NAME = "x-csrf-token"
 CSRF_TOKEN_LENGTH = 32
 
-# Paths that don't require CSRF validation (webhooks, health checks, etc.)
+# Paths that don't require CSRF validation (webhooks, health checks, JSON
+# API endpoints that use Bearer tokens instead of cookie sessions).
 EXEMPT_PREFIXES = (
     "/webhooks/",
     "/health",
     "/api/",
+    "/auth/",
 )
 
 # Methods that require CSRF validation

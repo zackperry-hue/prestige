@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.connection import PlatformConnection
 from app.platforms.sport_type_map import normalize_sport_type
 from app.schemas.workout import NormalizedWorkout
+from app.services.log_redaction import redact_secrets
 from app.services.token_manager import decrypt_token, encrypt_token
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ async def refresh_whoop_token(conn: PlatformConnection, db: AsyncSession) -> str
         )
 
     if resp.status_code != 200:
-        logger.error("Whoop token refresh failed: %s", resp.text)
+        logger.error("Whoop token refresh failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
         conn.is_active = False
         await db.commit()
         raise RuntimeError("Failed to refresh Whoop token")
@@ -69,7 +70,7 @@ async def fetch_whoop_workout(workout_id: str, access_token: str) -> dict:
             headers={"Authorization": f"Bearer {access_token}"},
         )
     if resp.status_code != 200:
-        logger.error("Whoop workout fetch failed: %s %s", resp.status_code, resp.text)
+        logger.error("Whoop workout fetch failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
         raise RuntimeError(f"Failed to fetch Whoop workout {workout_id}")
     return resp.json()
 
@@ -87,7 +88,7 @@ async def fetch_whoop_recovery(access_token: str, start_date: str) -> dict | Non
             params={"start": f"{start_date}T00:00:00.000Z", "end": f"{start_date}T23:59:59.999Z"},
         )
     if resp.status_code != 200:
-        logger.warning("Whoop recovery fetch failed: %s %s", resp.status_code, resp.text)
+        logger.warning("Whoop recovery fetch failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
         return None
 
     records = resp.json().get("records", [])

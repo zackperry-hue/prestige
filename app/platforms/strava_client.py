@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.connection import PlatformConnection
 from app.platforms.sport_type_map import normalize_sport_type
 from app.schemas.workout import NormalizedWorkout
+from app.services.log_redaction import redact_secrets
 from app.services.token_manager import decrypt_token, encrypt_token
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ async def refresh_strava_token(conn: PlatformConnection, db: AsyncSession) -> st
         )
 
     if resp.status_code != 200:
-        logger.error("Strava token refresh failed: %s", resp.text)
+        logger.error("Strava token refresh failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
         conn.is_active = False
         await db.commit()
         raise RuntimeError("Failed to refresh Strava token")
@@ -65,7 +66,7 @@ async def fetch_strava_activity(activity_id: int | str, access_token: str) -> di
             headers={"Authorization": f"Bearer {access_token}"},
         )
     if resp.status_code != 200:
-        logger.error("Strava activity fetch failed: %s %s", resp.status_code, resp.text)
+        logger.error("Strava activity fetch failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
         raise RuntimeError(f"Failed to fetch Strava activity {activity_id}")
     return resp.json()
 
