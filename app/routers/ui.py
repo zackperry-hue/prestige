@@ -478,6 +478,7 @@ async def disconnect_platform(platform: str, request: Request, db: AsyncSession 
         "strava": {"name": "Strava", "brand_color": "#FC4C02"},
         "whoop": {"name": "Whoop", "brand_color": "#00B8B0"},
         "wahoo": {"name": "Wahoo", "brand_color": "#0068FF"},
+        "garmin": {"name": "Garmin", "brand_color": "#007CC3"},
     }
     p = config[platform]
 

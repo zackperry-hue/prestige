@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -18,7 +17,6 @@ from app.models.user import User
 from app.models.user_profile import UserProfile
 from app.models.workout import Workout
 from app.models.workout_session import WorkoutSession
-from app.schemas.workout import NormalizedWorkout
 from app.services.workout_insights import WorkoutHighlights
 
 logger = logging.getLogger(__name__)
@@ -118,35 +116,8 @@ def send_existing_account_alert_email(to_email: str) -> bool:
     reset_url = f"{settings.app_base_url}/forgot-password"
     login_url = f"{settings.app_base_url}/"
 
-    html_content = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
-        <div style="text-align: center; margin-bottom: 32px;">
-            <h1 style="color: #ffffff; font-size: 24px; margin: 0;">Prestige</h1>
-        </div>
-        <div style="background: #1a1f3a; border-radius: 16px; padding: 32px; border: 1px solid #2d3354;">
-            <h2 style="color: #ffffff; font-size: 20px; margin: 0 0 16px;">Someone tried to register with your email</h2>
-            <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
-                We received a sign-up attempt using this email, but you already have a
-                Prestige account. No new account was created.
-            </p>
-            <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
-                If it was you, sign in with your existing password — or reset it if
-                you've forgotten.
-            </p>
-            <div style="text-align: center; margin: 24px 0;">
-                <a href="{login_url}" style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-weight: 600; font-size: 14px;">
-                    Sign In
-                </a>
-                <a href="{reset_url}" style="display: inline-block; margin-left: 8px; color: #9ca3af; text-decoration: none; padding: 12px 16px; font-size: 14px;">
-                    Forgot password
-                </a>
-            </div>
-            <p style="color: #6b7280; font-size: 12px; line-height: 1.5; margin: 24px 0 0;">
-                If it wasn't you, you can ignore this email — your account is unchanged.
-            </p>
-        </div>
-    </div>
-    """
+    template = _jinja_env.get_template("emails/existing_account_alert.html")
+    html_content = template.render(login_url=login_url, reset_url=reset_url)
 
     message = Mail(
         from_email=("workouts@prestigefitapp.com", "Prestige"),
@@ -180,30 +151,8 @@ def send_password_reset_email(to_email: str, reset_url: str) -> bool:
         logger.warning("SENDGRID_API_KEY not set, cannot send reset email")
         return False
 
-    html_content = f"""
-    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
-        <div style="text-align: center; margin-bottom: 32px;">
-            <h1 style="color: #ffffff; font-size: 24px; margin: 0;">Prestige</h1>
-        </div>
-        <div style="background: #1a1f3a; border-radius: 16px; padding: 32px; border: 1px solid #2d3354;">
-            <h2 style="color: #ffffff; font-size: 20px; margin: 0 0 16px;">Reset Your Password</h2>
-            <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
-                We received a request to reset your password. Click the button below to set a new one.
-                This link expires in 1 hour.
-            </p>
-            <div style="text-align: center; margin: 24px 0;">
-                <a href="{reset_url}"
-                   style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none;
-                          padding: 12px 32px; border-radius: 8px; font-weight: 600; font-size: 14px;">
-                    Reset Password
-                </a>
-            </div>
-            <p style="color: #6b7280; font-size: 12px; line-height: 1.5; margin: 24px 0 0;">
-                If you didn't request this, you can safely ignore this email. Your password won't change.
-            </p>
-        </div>
-    </div>
-    """
+    template = _jinja_env.get_template("emails/password_reset.html")
+    html_content = template.render(reset_url=reset_url)
 
     message = Mail(
         from_email=("workouts@prestigefitapp.com", "Prestige"),
@@ -331,74 +280,6 @@ async def send_session_email(
         log_entry.status = "failed"
         log_entry.error_message = str(e)
         logger.exception("Failed to send session email to %s", user.email)
-
-    db.add(log_entry)
-    await db.commit()
-    return log_entry.status == "sent"
-
-
-# Keep legacy function for backward compatibility
-async def send_workout_email(
-    db: AsyncSession,
-    user: User,
-    workout: NormalizedWorkout,
-    workout_id: uuid.UUID,
-    highlights: WorkoutHighlights,
-) -> bool:
-    """Legacy single-workout email. Delegates to session email when possible."""
-    # This is kept for any direct calls but the main flow now uses send_session_email
-    if not user.email_enabled:
-        return False
-    if not settings.sendgrid_api_key:
-        return False
-
-    units = getattr(user, "unit_system", "imperial")
-    template = _jinja_env.get_template("workout_summary.html")
-
-    html_content = template.render(
-        display_name=user.display_name or user.email.split("@")[0],
-        platform=workout.platform,
-        sport_type_display=_sport_type_display(workout.sport_type),
-        workout_date_full=workout.started_at.strftime("%m/%d/%Y"),
-        workout_date_short=workout.started_at.strftime("%a %b %d"),
-        workout_time=workout.started_at.strftime("%I:%M %p"),
-        duration_display=_format_duration(workout.duration_seconds),
-        distance_display=_format_distance(workout.distance_meters, units),
-        pace_display=_format_pace(workout.distance_meters, workout.duration_seconds, units),
-        calories=workout.calories,
-        avg_heart_rate=workout.avg_heart_rate,
-        max_heart_rate=workout.max_heart_rate,
-        strain_score=workout.strain_score,
-        elevation_gain=_format_elevation(workout.elevation_gain, units),
-        avg_power_watts=workout.avg_power_watts,
-        insights=highlights.insights,
-        workouts_this_week=highlights.total_workouts_this_week,
-        workouts_this_month=highlights.total_workouts_this_month,
-        streak_days=highlights.streak_days,
-    )
-
-    sport_display = _sport_type_display(workout.sport_type)
-    date_str = workout.started_at.strftime("%m/%d/%Y")
-    subject = f"Workout Summary for {date_str} — {sport_display} via {workout.platform.title()}"
-
-    message = Mail(
-        from_email=settings.sendgrid_from_email,
-        to_emails=user.email,
-        subject=subject,
-        html_content=html_content,
-    )
-
-    log_entry = EmailLog(user_id=user.id, workout_id=workout_id)
-
-    try:
-        sg = SendGridAPIClient(settings.sendgrid_api_key)
-        response = sg.send(message)
-        log_entry.sendgrid_msg_id = response.headers.get("X-Message-Id", "")
-        log_entry.status = "sent"
-    except Exception as e:
-        log_entry.status = "failed"
-        log_entry.error_message = str(e)
-        logger.exception("Failed to send workout email to %s", user.email)
 
     db.add(log_entry)
     await db.commit()

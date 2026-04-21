@@ -7,7 +7,6 @@ as a form field or header, matching the cookie value.
 Exempt paths (webhooks, API endpoints) are skipped.
 """
 
-import hashlib
 import hmac
 import logging
 import secrets
@@ -41,15 +40,6 @@ UNSAFE_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
 def _generate_csrf_token() -> str:
     """Generate a random CSRF token."""
     return secrets.token_hex(CSRF_TOKEN_LENGTH)
-
-
-def _sign_token(token: str) -> str:
-    """Sign a CSRF token with the app secret to prevent forgery."""
-    return hmac.new(
-        settings.app_secret_key.encode(),
-        token.encode(),
-        hashlib.sha256,
-    ).hexdigest()
 
 
 def _is_exempt(path: str) -> bool:
