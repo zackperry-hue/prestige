@@ -124,7 +124,12 @@ async def _get_user_from_cookie(request: Request, db: AsyncSession) -> User | No
     except JWTError:
         return None
 
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        return None
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
     return result.scalar_one_or_none()
 
 
@@ -293,10 +298,11 @@ async def do_forgot_password(
         db.add(reset_token)
         await db.commit()
 
-        # Send email
+        # Send email (SendGrid .send is blocking — push to a worker thread)
+        import asyncio as _asyncio
         reset_url = f"{settings.app_base_url}/reset-password?token={token}"
         from app.services.email_service import send_password_reset_email
-        send_password_reset_email(user.email, reset_url)
+        await _asyncio.to_thread(send_password_reset_email, user.email, reset_url)
 
     return templates.TemplateResponse(request=request, name="forgot_password.html", context={
         "user": None, "message": success_msg, "error": None,
@@ -511,7 +517,6 @@ async def save_preferences(request: Request, db: AsyncSession = Depends(get_db))
     form = await request.form()
     unit_system = form.get("unit_system")
     timezone = form.get("timezone")
-    email_enabled = form.get("email_enabled")
 
     if unit_system and unit_system in ("metric", "imperial"):
         user.unit_system = unit_system
@@ -519,7 +524,11 @@ async def save_preferences(request: Request, db: AsyncSession = Depends(get_db))
         if timezone not in pytz.all_timezones:
             raise HTTPException(status_code=400, detail="Invalid timezone")
         user.timezone = timezone
-    user.email_enabled = email_enabled == "true"
+    # Only overwrite email_enabled if the field was actually submitted.
+    # A partial PATCH that omits the checkbox must not silently opt the
+    # user out.
+    if "email_enabled" in form:
+        user.email_enabled = form.get("email_enabled") == "true"
 
     await db.commit()
 

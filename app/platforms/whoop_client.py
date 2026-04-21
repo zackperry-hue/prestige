@@ -75,6 +75,49 @@ async def fetch_whoop_workout(workout_id: str, access_token: str) -> dict:
     return resp.json()
 
 
+async def fetch_whoop_workouts(
+    access_token: str,
+    start: datetime,
+    end: datetime,
+    limit: int = 50,
+    max_pages: int = 10,
+) -> list[dict]:
+    """Fetch workouts in a time range from Whoop API v2 with pagination."""
+    all_workouts: list[dict] = []
+    next_token: str | None = None
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
+        for _ in range(max_pages):
+            params: dict = {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "limit": limit,
+            }
+            if next_token:
+                params["nextToken"] = next_token
+
+            resp = await client.get(f"{WHOOP_API_BASE}/activity/workout", params=params)
+
+            if resp.status_code != 200:
+                logger.error(
+                    "Whoop workouts fetch failed (status %s): %s",
+                    resp.status_code,
+                    redact_secrets(resp.text),
+                )
+                break
+
+            data = resp.json()
+            records = data.get("records", [])
+            all_workouts.extend(records)
+
+            next_token = data.get("next_token")
+            if not next_token or not records:
+                break
+
+    return all_workouts
+
+
 async def fetch_whoop_recovery(access_token: str, start_date: str) -> dict | None:
     """Fetch recovery data for a specific date from Whoop API v2.
 

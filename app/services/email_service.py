@@ -1,5 +1,6 @@
 """Email sending via SendGrid with Jinja2 template rendering."""
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -322,7 +323,7 @@ async def send_session_email(
 
     try:
         sg = SendGridAPIClient(settings.sendgrid_api_key)
-        response = sg.send(message)
+        response = await asyncio.to_thread(sg.send, message)
         log_entry.sendgrid_msg_id = response.headers.get("X-Message-Id", "")
         log_entry.status = "sent"
         logger.info("Sent session email to %s (status %s)", user.email, response.status_code)

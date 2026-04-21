@@ -70,35 +70,32 @@ async def fetch_wahoo_workouts(
 ) -> list[dict]:
     """Fetch workouts from Wahoo API with pagination. Returns list of workout dicts."""
     all_workouts: list[dict] = []
+    headers = {"Authorization": f"Bearer {access_token}"}
 
-    for page in range(1, max_pages + 1):
-        params: dict = {"page": page, "per_page": per_page}
-        if created_after:
-            params["created_after"] = created_after.isoformat()
+    async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
+        for page in range(1, max_pages + 1):
+            params: dict = {"page": page, "per_page": per_page}
+            if created_after:
+                params["created_after"] = created_after.isoformat()
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{WAHOO_API_BASE}/workouts",
-                headers={"Authorization": f"Bearer {access_token}"},
-                params=params,
-            )
+            resp = await client.get(f"{WAHOO_API_BASE}/workouts", params=params)
 
-        if resp.status_code == 429:
-            logger.warning("Wahoo rate limited (429), will retry next poll cycle")
-            break
-        if resp.status_code != 200:
-            logger.error("Wahoo workouts fetch failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
-            raise RuntimeError("Failed to fetch Wahoo workouts")
+            if resp.status_code == 429:
+                logger.warning("Wahoo rate limited (429), will retry next poll cycle")
+                break
+            if resp.status_code != 200:
+                logger.error("Wahoo workouts fetch failed (status %s): %s", resp.status_code, redact_secrets(resp.text))
+                raise RuntimeError("Failed to fetch Wahoo workouts")
 
-        data = resp.json()
-        workouts = data.get("workouts", data) if isinstance(data, dict) else data
-        if not workouts:
-            break
-        all_workouts.extend(workouts)
+            data = resp.json()
+            workouts = data.get("workouts", data) if isinstance(data, dict) else data
+            if not workouts:
+                break
+            all_workouts.extend(workouts)
 
-        # If we got fewer than per_page, there are no more pages
-        if len(workouts) < per_page:
-            break
+            # If we got fewer than per_page, there are no more pages
+            if len(workouts) < per_page:
+                break
 
     return all_workouts
 

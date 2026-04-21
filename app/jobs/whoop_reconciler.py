@@ -7,13 +7,15 @@ from sqlalchemy import select
 
 from app.database import async_session_factory
 from app.models.connection import PlatformConnection
-from app.platforms.whoop_client import fetch_whoop_recovery, get_whoop_token, normalize_whoop_workout
-from app.services.token_manager import decrypt_token
+from app.platforms.whoop_client import (
+    fetch_whoop_recovery,
+    fetch_whoop_workouts,
+    get_whoop_token,
+    normalize_whoop_workout,
+)
 from app.services.workout_processor import process_workout
 
 logger = logging.getLogger(__name__)
-
-WHOOP_API_BASE = "https://api.prod.whoop.com/developer/v2"
 
 
 async def reconcile_whoop_workouts():
@@ -47,43 +49,9 @@ async def reconcile_whoop_workouts():
 
                 token = await get_whoop_token(fresh_conn, db)
 
-                import httpx
-
-                # Paginate through all workouts in the time range
-                all_workouts: list[dict] = []
-                next_token: str | None = None
-
-                for _page in range(10):  # Safety cap at 10 pages
-                    params: dict = {
-                        "start": since.isoformat(),
-                        "end": datetime.now(UTC).isoformat(),
-                        "limit": 50,
-                    }
-                    if next_token:
-                        params["nextToken"] = next_token
-
-                    async with httpx.AsyncClient(timeout=15.0) as client:
-                        resp = await client.get(
-                            f"{WHOOP_API_BASE}/activity/workout",
-                            headers={"Authorization": f"Bearer {token}"},
-                            params=params,
-                        )
-
-                    if resp.status_code != 200:
-                        logger.error(
-                            "Whoop reconciliation fetch failed for user %s: %s",
-                            fresh_conn.user_id,
-                            resp.text,
-                        )
-                        break
-
-                    data = resp.json()
-                    page_workouts = data.get("records", [])
-                    all_workouts.extend(page_workouts)
-
-                    next_token = data.get("next_token")
-                    if not next_token or not page_workouts:
-                        break
+                all_workouts = await fetch_whoop_workouts(
+                    token, start=since, end=datetime.now(UTC)
+                )
 
                 # Cache recovery data by date to avoid duplicate API calls
                 recovery_cache: dict[str, dict | None] = {}
