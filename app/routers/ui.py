@@ -141,6 +141,16 @@ async def login_page(request: Request, db: AsyncSession = Depends(get_db)):
     return templates.TemplateResponse(request=request, name="login.html", context={"error": None, "success": None, "mode": "login"})
 
 
+# Fixed dummy bcrypt hash used to equalize login timing when the email
+# doesn't exist. Prevents user enumeration via response-time differences.
+_DUMMY_BCRYPT_HASH = "$2b$12$0000000000000000000000000000000000000000000000000000"
+
+
+def _normalize_email(email: str) -> str:
+    """Trim whitespace and lowercase. All email lookups and writes go through this."""
+    return (email or "").strip().lower()
+
+
 @router.post("/dashboard/ui/login", response_class=HTMLResponse)
 @limiter.limit("5/minute")
 async def do_login(
@@ -149,9 +159,13 @@ async def do_login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    email = _normalize_email(email)
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-    if not user or not verify_password(password, user.password_hash):
+    # Always run bcrypt so timing doesn't leak whether the email exists.
+    password_hash = user.password_hash if user else _DUMMY_BCRYPT_HASH
+    password_ok = verify_password(password, password_hash)
+    if not user or not password_ok:
         return templates.TemplateResponse(
             request=request, name="login.html",
             context={"error": "Invalid email or password.", "success": None, "mode": "login"},
@@ -180,19 +194,29 @@ async def do_register(
     display_name: str = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
-    existing = await db.execute(select(User).where(User.email == email))
-    if existing.scalar_one_or_none():
-        return templates.TemplateResponse(
-            request=request, name="login.html",
-            context={"error": "That email is already registered.", "success": None, "mode": "register"},
-            status_code=409,
-        )
+    email = _normalize_email(email)
 
     if len(password) < 8:
         return templates.TemplateResponse(
             request=request, name="login.html",
             context={"error": "Password must be at least 8 characters.", "success": None, "mode": "register"},
             status_code=400,
+        )
+
+    existing = await db.execute(select(User).where(User.email == email))
+    if existing.scalar_one_or_none():
+        # Don't reveal that the email is already in use. Privately notify the
+        # real account holder and send the attempter back to login.
+        from app.services.email_service import send_existing_account_alert_email
+        import asyncio
+        await asyncio.to_thread(send_existing_account_alert_email, email)
+        return templates.TemplateResponse(
+            request=request, name="login.html",
+            context={
+                "error": None,
+                "success": "Check your email. If you have an existing account, you can sign in below.",
+                "mode": "login",
+            },
         )
 
     user = User(
@@ -244,6 +268,7 @@ async def do_forgot_password(
     # Always show the same message to prevent email enumeration
     success_msg = "If an account exists with that email, we've sent a password reset link."
 
+    email = _normalize_email(email)
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 

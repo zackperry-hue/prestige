@@ -103,6 +103,76 @@ def _localize_time(dt: datetime, timezone_str: str) -> datetime:
         return dt
 
 
+def send_existing_account_alert_email(to_email: str) -> bool:
+    """Notify an existing user that someone attempted to register with their email.
+
+    Part of the enumeration-resistant register flow: the attempter sees a
+    generic response regardless of whether the email was in use, and we
+    privately tell the real account holder that someone tried.
+    """
+    if not settings.sendgrid_api_key:
+        logger.warning("SENDGRID_API_KEY not set, cannot send existing-account alert")
+        return False
+
+    reset_url = f"{settings.app_base_url}/forgot-password"
+    login_url = f"{settings.app_base_url}/"
+
+    html_content = f"""
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
+        <div style="text-align: center; margin-bottom: 32px;">
+            <h1 style="color: #ffffff; font-size: 24px; margin: 0;">Prestige</h1>
+        </div>
+        <div style="background: #1a1f3a; border-radius: 16px; padding: 32px; border: 1px solid #2d3354;">
+            <h2 style="color: #ffffff; font-size: 20px; margin: 0 0 16px;">Someone tried to register with your email</h2>
+            <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
+                We received a sign-up attempt using this email, but you already have a
+                Prestige account. No new account was created.
+            </p>
+            <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin: 0 0 24px;">
+                If it was you, sign in with your existing password — or reset it if
+                you've forgotten.
+            </p>
+            <div style="text-align: center; margin: 24px 0;">
+                <a href="{login_url}" style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-weight: 600; font-size: 14px;">
+                    Sign In
+                </a>
+                <a href="{reset_url}" style="display: inline-block; margin-left: 8px; color: #9ca3af; text-decoration: none; padding: 12px 16px; font-size: 14px;">
+                    Forgot password
+                </a>
+            </div>
+            <p style="color: #6b7280; font-size: 12px; line-height: 1.5; margin: 24px 0 0;">
+                If it wasn't you, you can ignore this email — your account is unchanged.
+            </p>
+        </div>
+    </div>
+    """
+
+    message = Mail(
+        from_email=("workouts@prestigefitapp.com", "Prestige"),
+        to_emails=to_email,
+        subject="Sign-up attempt on your Prestige account",
+        html_content=html_content,
+        plain_text_content=(
+            "Someone tried to register with your email, but you already have a "
+            "Prestige account. No new account was created. If it was you, sign "
+            f"in at {login_url} or reset your password at {reset_url}."
+        ),
+    )
+
+    try:
+        sg = SendGridAPIClient(settings.sendgrid_api_key)
+        response = sg.send(message)
+        logger.info(
+            "Sent existing-account alert to %s (status %s)",
+            to_email,
+            response.status_code,
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to send existing-account alert to %s", to_email)
+        return False
+
+
 def send_password_reset_email(to_email: str, reset_url: str) -> bool:
     """Send a password reset email. Returns True on success."""
     if not settings.sendgrid_api_key:

@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +17,14 @@ from app.services.password import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+# Fixed dummy bcrypt hash used to equalize login timing when the email
+# doesn't exist. Prevents user enumeration via response-time differences.
+_DUMMY_BCRYPT_HASH = "$2b$12$0000000000000000000000000000000000000000000000000000"
+
+
+def _normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
 
 
 def create_access_token(user_id: uuid.UUID) -> str:
@@ -47,7 +56,12 @@ async def get_current_user(
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
@@ -57,12 +71,21 @@ async def get_current_user(
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/minute")
 async def register(request: Request, data: UserCreate, db: AsyncSession = Depends(get_db)):
-    existing = await db.execute(select(User).where(User.email == data.email))
+    email = _normalize_email(data.email)
+    existing = await db.execute(select(User).where(User.email == email))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Email already registered")
+        # Notify the real account holder and return a generic response.
+        # API clients get a 202 Accepted rather than 409 so the signal is
+        # indistinguishable from a successful registration at the HTTP level.
+        from app.services.email_service import send_existing_account_alert_email
+        await asyncio.to_thread(send_existing_account_alert_email, email)
+        raise HTTPException(
+            status_code=status.HTTP_202_ACCEPTED,
+            detail="Registration received. Check your email for next steps.",
+        )
 
     user = User(
-        email=data.email,
+        email=email,
         password_hash=hash_password(data.password),
         display_name=data.display_name,
         timezone=data.timezone,
@@ -77,9 +100,13 @@ async def register(request: Request, data: UserCreate, db: AsyncSession = Depend
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("5/minute")
 async def login(request: Request, data: UserLogin, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == data.email))
+    email = _normalize_email(data.email)
+    result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
-    if not user or not verify_password(data.password, user.password_hash):
+    # Always run bcrypt so timing doesn't leak whether the email exists.
+    password_hash = user.password_hash if user else _DUMMY_BCRYPT_HASH
+    password_ok = verify_password(data.password, password_hash)
+    if not user or not password_ok:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_access_token(user.id)
