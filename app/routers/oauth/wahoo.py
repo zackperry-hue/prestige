@@ -63,7 +63,11 @@ async def wahoo_callback(
 
     if resp.status_code != 200:
         logger.error("Wahoo token exchange failed: %s", resp.text)
-        raise HTTPException(status_code=400, detail="Failed to connect Wahoo")
+        # TEMP DEBUG — revert once we've identified the Wahoo OAuth failure.
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to connect Wahoo (status {resp.status_code}): {resp.text[:300]}",
+        )
 
     data = resp.json()
     access_token = data["access_token"]
