@@ -1,25 +1,20 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.rate_limit import limiter
 from app.schemas.user import TokenResponse, UserCreate, UserLogin, UserResponse
+from app.services.password import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-def _hash_pw(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-def _verify_pw(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
@@ -33,14 +28,13 @@ async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
-    token: str = Query(None),
 ) -> User:
-    # Accept token from Authorization header OR query param
+    # Accept token from Authorization header or session cookie
     raw_token = None
     if credentials:
         raw_token = credentials.credentials
-    elif token:
-        raw_token = token
+    else:
+        raw_token = request.cookies.get("session_token")
 
     if not raw_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -61,14 +55,15 @@ async def get_current_user(
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def register(request: Request, data: UserCreate, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Email already registered")
 
     user = User(
         email=data.email,
-        password_hash=_hash_pw(data.password),
+        password_hash=hash_password(data.password),
         display_name=data.display_name,
         timezone=data.timezone,
         unit_system=data.unit_system,
@@ -80,10 +75,11 @@ async def register(data: UserCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(request: Request, data: UserLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
-    if not user or not _verify_pw(data.password, user.password_hash):
+    if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     token = create_access_token(user.id)
