@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import logging
 import secrets
+from urllib.parse import parse_qs
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -91,13 +92,32 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             logger.warning("CSRF: missing cookie on %s %s", request.method, request.url.path)
             return Response(status_code=403, content="CSRF validation failed")
 
-        # Check header first (for HTMX/AJAX requests), then form field
+        # Check header first (for HTMX/AJAX requests), then form field.
+        # When we read the form body here we must also buffer + replay it so
+        # the downstream FastAPI handler can still parse email/password etc.
+        # Otherwise BaseHTTPMiddleware leaves the body stream exhausted.
         submitted_token = request.headers.get(CSRF_HEADER_NAME)
         if not submitted_token:
             content_type = request.headers.get("content-type", "")
-            if "form" in content_type:
-                form = await request.form()
-                submitted_token = form.get(CSRF_FIELD_NAME)
+            if "application/x-www-form-urlencoded" in content_type:
+                body_bytes = await request.body()
+                try:
+                    parsed = parse_qs(body_bytes.decode("utf-8", errors="replace"))
+                    values = parsed.get(CSRF_FIELD_NAME, [])
+                    submitted_token = values[0] if values else None
+                except Exception:
+                    submitted_token = None
+
+                replayed = False
+
+                async def _replay_receive() -> dict:
+                    nonlocal replayed
+                    if replayed:
+                        return {"type": "http.disconnect"}
+                    replayed = True
+                    return {"type": "http.request", "body": body_bytes, "more_body": False}
+
+                request._receive = _replay_receive
 
         if not submitted_token or not hmac.compare_digest(cookie_token, submitted_token):
             logger.warning("CSRF: token mismatch on %s %s", request.method, request.url.path)
