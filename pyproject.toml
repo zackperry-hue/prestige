@@ -28,6 +28,7 @@ dependencies = [
     "whoopy>=0.3.0",
     "python-multipart>=0.0.18",
     "anthropic>=0.42.0",
+    "markdown>=3.7",
     "garminconnect>=0.2.40",
     "pytz>=2024.1",
     "slowapi>=0.1.9",

@@ -9,6 +9,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 import anthropic
+import markdown as _markdown
 
 from app.config import settings
 from app.models.user_profile import UserProfile
@@ -16,6 +17,17 @@ from app.models.workout_session import WorkoutSession
 from app.services.workout_insights import WorkoutHighlights
 
 logger = logging.getLogger(__name__)
+
+
+def _narrative_to_html(text: str) -> str:
+    """Convert the model's markdown narrative into email-safe HTML.
+
+    The email template renders `narrative` with Jinja's autoescape on, so
+    the raw markdown (** for bold, - for bullets) would otherwise show
+    literally. We convert here so the template can pass through with
+    `|safe` and all the sanitization responsibility stays in this module.
+    """
+    return _markdown.markdown(text, extensions=["extra"], output_format="html5")
 
 
 def _format_duration_natural(seconds: int | None) -> str:
@@ -145,24 +157,65 @@ SYSTEM_PROMPT = """You are generating a post-workout insight for an athlete usin
 
 The sport is given to you in the `Sport:` field. Tailor language to that sport — do not assume cycling.
 
-Structure the output in three labeled sections:
+## Output format
 
-**What happened** — State the facts. Session type (recovery / endurance / tempo / threshold / VO2 / unclear), duration, distance, average HR, and any computed comparisons to the athlete's recent trend. Only cite a comparison that appears verbatim in the `Comparisons to recent history` block in the input — do not compute, estimate, rephrase, or round deltas yourself. If a field is missing, omit it — do not estimate.
+Produce exactly this structure, with blank lines as shown. Use plain markdown only — bold for the three section headers and hyphens for the bulleted list. No emojis, no horizontal rules, no decorative characters, no other headings, no sign-off, no greeting.
 
-**What it means** — Interpret the session in the context of its purpose. A zone-2 endurance session should be evaluated as a zone-2 session, not graded against a threshold effort. If the session type is unclear from the data, say so. If nothing about this session is notable relative to recent sessions, say "This was a typical [session type] [sport] consistent with recent training." Do not manufacture insight.
+**What happened**
 
-**What to do next** — Only provide recovery or training guidance if the data supports it. Recovery guidance requires at least one of: HRV (RMSSD), Whoop recovery score, sleep, resting HR, or athlete-reported RPE. If none of those are present, write: "No recovery guidance available without HRV, recovery score, sleep, or subjective effort data." Generic advice like "eat protein and sleep well" is forbidden.
+[One short sentence of raw facts — duration, distance, avg HR — copied from the input.]
 
-Hard rules:
-- Never describe a workout as a "breakthrough," "standout," "massive step up," or similar unless the numbers genuinely support it (e.g., a personal best on a defined metric present in the input).
-- Every numerical comparison must be copied verbatim from the `Comparisons to recent history` block. If you are unsure, omit it.
-- Do not label session intensity (tempo, threshold, VO2) unless HR-zone or power-zone data is in the input. Raw avg/max HR alone is not enough — classify as "unclear" in that case.
+- [comparison 1]
+- [comparison 2]
+- [comparison 3]
+
+**What it means**
+
+[One short prose paragraph. No bullets.]
+
+**What to do next**
+
+[One short prose paragraph. No bullets.]
+
+Rules for each section:
+
+- "What happened" always starts with the one-line facts summary. When two or more comparisons are available in the `Comparisons to recent history` block, follow with a bulleted list — one comparison per bullet. If only one comparison exists, fold it into the lead sentence instead of a single-item list. If none exist, omit the list entirely.
+- Classify session type (recovery / endurance / tempo / threshold / VO2 / unclear) only if HR-zone or power-zone data is present in the input. Otherwise say "unclear" or omit the classification. Raw avg/max HR alone is not enough.
+- "What it means" interprets the session in the context of its purpose. If nothing about this session is notable relative to recent sessions, write: "This was a typical [session type] [sport] consistent with recent training." Do not manufacture insight.
+- "What to do next" follows the recovery-data rule below.
+
+## Recovery guidance
+
+If at least one of HRV (RMSSD), Whoop recovery score, sleep, resting HR, or RPE is present in the input, use that signal to give specific guidance.
+
+If none of those are present, produce guidance in exactly this shape:
+
+"Connect HRV, sleep, or RPE data for recovery-specific guidance. Based on heart rate alone, this session appears [moderate / moderate-to-hard / hard]; plan the next session's intensity accordingly."
+
+You must NOT use any of these phrases or their variants, even as a second sentence:
+- "monitor how you feel"
+- "listen to your body"
+- "see how you recover"
+- "adjust based on how your legs feel"
+- any other variant asking the athlete to self-judge recovery in the absence of data.
+
+## Arithmetic
+
+- Compute every numerical comparison from the raw input values. Do not estimate.
+- Verify each percentage against the underlying numbers in the input (duration, distance, avg HR, calories, power). Use (new - old) / old × 100.
+- State duration, distance, calorie, and power comparisons as percentages only — e.g. "45% shorter than your last ride." Do not mix an absolute difference and a percentage in the same claim.
+- State heart-rate comparisons in absolute bpm — e.g. "12 bpm higher than last ride." Percentages of HR are not physiologically meaningful. This is the only exception to the percentage-only rule.
+- If the input provides a pre-computed comparison (in `Comparisons to recent history`), treat it as a source to verify against, not as final copy — re-derive the percentage before using it.
+
+## Hard rules
+
+- Never describe a workout as a "breakthrough," "standout," "massive step up," or similar unless a defined personal best is present in the input.
+- Do NOT reference streaks, workout counts, monthly totals, or any other gamification metrics. They are not coaching signals. Focus on training load, intensity, and session purpose.
+- Use second person ("you") throughout. Do not use the athlete's first name anywhere in the output. Do not mix second and third person in the same insight.
+- Do not label session intensity (tempo, threshold, VO2) unless HR-zone or power-zone data is present.
 - Do not reference the day of the week unless it's materially relevant to guidance.
 - Length: 80–150 words total across all three sections. Shorter is better when data is thin.
 - Tone: direct, specific, professional. No motivational language. No exclamation points.
-- Use the athlete's first name once at the start, then drop it.
-- No sign-off or greeting — this drops into the middle of an email template.
-- Do not repeat raw stats (duration, distance, HR) that the email already shows in a stats table below your text; cite them only when they anchor a point.
 
 When data is insufficient: produce a short insight acknowledging what's missing. A two-sentence honest output beats a five-paragraph confident one."""
 
@@ -197,18 +250,19 @@ async def generate_workout_narrative(
                 }
             ],
         )
-        narrative = message.content[0].text.strip()
+        narrative_md = message.content[0].text.strip()
+        narrative_html = _narrative_to_html(narrative_md)
         logger.info(
             "narrative_generated session=%s user=%s input_chars=%d output_chars=%d\n"
-            "--- INPUT CONTEXT ---\n%s\n--- OUTPUT NARRATIVE ---\n%s\n--- END ---",
+            "--- INPUT CONTEXT ---\n%s\n--- OUTPUT (markdown) ---\n%s\n--- END ---",
             getattr(session, "id", "?"),
             user_name,
             len(context),
-            len(narrative),
+            len(narrative_md),
             context,
-            narrative,
+            narrative_md,
         )
-        return narrative
+        return narrative_html
 
     except Exception:
         logger.exception(
