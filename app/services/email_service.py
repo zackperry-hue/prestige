@@ -59,6 +59,13 @@ def _format_elevation(meters: float | None, unit_system: str = "imperial") -> st
     return f"{int(meters)} m"
 
 
+_PACE_SPORTS = {"running", "run", "trail_running", "walking", "walk", "hiking", "hike"}
+_SPEED_SPORTS = {
+    "cycling", "ride", "virtual_ride", "mountain_biking",
+    "gravel_cycling", "e_bike_ride",
+}
+
+
 def _format_pace(meters: float | None, seconds: int, unit_system: str = "imperial") -> str | None:
     """Format pace as M:SS /mi or /km."""
     if not meters or meters <= 0 or seconds <= 0:
@@ -72,6 +79,36 @@ def _format_pace(meters: float | None, seconds: int, unit_system: str = "imperia
     pace_seconds = int(seconds / km)
     mins, secs = divmod(pace_seconds, 60)
     return f"{mins}:{secs:02d} /km"
+
+
+def _format_speed(meters: float | None, seconds: int, unit_system: str = "imperial") -> str | None:
+    """Format average speed as 'X.X mph' or 'X.X km/h'."""
+    if not meters or meters <= 0 or seconds <= 0:
+        return None
+    hours = seconds / 3600
+    if hours <= 0:
+        return None
+    if unit_system == "imperial":
+        miles = meters / _METERS_PER_MILE
+        return f"{miles / hours:.1f} mph"
+    km = meters / 1000
+    return f"{km / hours:.1f} km/h"
+
+
+def _pace_for_sport(sport_type: str | None, meters: float | None, seconds: int, units: str) -> str | None:
+    if not sport_type:
+        return None
+    if sport_type.lower() in _PACE_SPORTS:
+        return _format_pace(meters, seconds, units)
+    return None
+
+
+def _speed_for_sport(sport_type: str | None, meters: float | None, seconds: int, units: str) -> str | None:
+    if not sport_type:
+        return None
+    if sport_type.lower() in _SPEED_SPORTS:
+        return _format_speed(meters, seconds, units)
+    return None
 
 
 def _sport_type_display(sport_type: str | None) -> str:
@@ -204,7 +241,8 @@ def render_session_email(
         # Merged best-of data
         duration_display=_format_duration(session.duration_seconds) if session.duration_seconds else None,
         distance_display=_format_distance(session.distance_meters, units),
-        pace_display=_format_pace(session.distance_meters, session.duration_seconds or 0, units),
+        pace_display=_pace_for_sport(session.sport_type, session.distance_meters, session.duration_seconds or 0, units),
+        speed_display=_speed_for_sport(session.sport_type, session.distance_meters, session.duration_seconds or 0, units),
         calories=session.calories,
         avg_heart_rate=session.avg_heart_rate,
         max_heart_rate=session.max_heart_rate,
@@ -247,7 +285,9 @@ async def send_session_email(
     profile_result = await db.execute(select(UserProfile).where(UserProfile.user_id == user.id))
     profile = profile_result.scalar_one_or_none()
 
-    narrative = await generate_workout_narrative(session, highlights, user_name, units, profile=profile)
+    narrative = await generate_workout_narrative(
+        session, highlights, user_name, units, profile=profile, db=db
+    )
 
     html_content = render_session_email(user, session, workouts, highlights, narrative=narrative)
 

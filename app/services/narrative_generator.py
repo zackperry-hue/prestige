@@ -6,12 +6,15 @@ Similar to Whoop's AI coach summaries.
 """
 
 import logging
+import uuid
 from datetime import date, datetime, timedelta
 
 import anthropic
 import markdown as _markdown
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.insight_log import InsightLog
 from app.models.user_profile import UserProfile
 from app.models.workout_session import WorkoutSession
 from app.services.workout_insights import WorkoutHighlights
@@ -85,6 +88,13 @@ def _build_profile_context(profile: UserProfile | None) -> str:
     return "\n".join(lines)
 
 
+# Sports where speed (mph / km/h) is the conventional metric rather than pace.
+_SPEED_SPORTS = {
+    "cycling", "ride", "virtual_ride", "mountain_biking",
+    "gravel_cycling", "e_bike_ride",
+}
+
+
 def _build_workout_context(
     session: WorkoutSession,
     highlights: WorkoutHighlights,
@@ -92,15 +102,19 @@ def _build_workout_context(
     units: str = "imperial",
     profile: UserProfile | None = None,
 ) -> str:
-    """Build a structured context block for Claude from session data."""
+    """Build a structured context block for Claude from session data.
+
+    Does not include platform/source attribution — the user-facing insight
+    should not mention which device or service the data came from.
+    """
     today = date.today()
     day_name = today.strftime("%A")
     tomorrow_name = (today + timedelta(days=1)).strftime("%A")
+    sport = (session.sport_type or "workout").lower()
     lines = [
         f"Athlete name: {user_name}",
         f"Today: {day_name} ({today.isoformat()}), tomorrow is {tomorrow_name}",
         f"Sport: {session.sport_type or 'workout'}",
-        f"Platforms: {session.platforms}",
         f"Duration: {_format_duration_natural(session.duration_seconds)}",
     ]
 
@@ -111,6 +125,18 @@ def _build_workout_context(
         else:
             dist = session.distance_meters / 1000
             lines.append(f"Distance: {dist:.1f} km")
+
+        # For speed-biased sports (cycling), include average speed. Pace is
+        # meaningless on the bike; speed is the conventional metric.
+        if sport in _SPEED_SPORTS and session.duration_seconds:
+            hours = session.duration_seconds / 3600
+            if hours > 0:
+                if units == "imperial":
+                    miles = session.distance_meters / 1609.34
+                    lines.append(f"Average speed: {miles / hours:.1f} mph")
+                else:
+                    km = session.distance_meters / 1000
+                    lines.append(f"Average speed: {km / hours:.1f} km/h")
 
     if session.calories:
         lines.append(f"Calories: {int(session.calories)} kcal")
@@ -159,30 +185,29 @@ The sport is given to you in the `Sport:` field. Tailor language to that sport �
 
 ## Output format
 
-Produce exactly this structure, with blank lines as shown. Use plain markdown only — bold for the three section headers and hyphens for the bulleted list. No emojis, no horizontal rules, no decorative characters, no other headings, no sign-off, no greeting.
+Produce exactly this structure, with blank lines as shown. Use plain markdown only — bold for the three section headers. No emojis, no horizontal rules, no decorative characters, no other headings, no sign-off, no greeting, no title prefix (do not write "WORKOUT INSIGHT" or similar), and no em-dash separating a header from its body.
 
 **What happened**
-
-[One short sentence of raw facts — duration, distance, avg HR — copied from the input.]
-
-- [comparison 1]
-- [comparison 2]
-- [comparison 3]
+[single paragraph of prose]
 
 **What it means**
-
-[One short prose paragraph. No bullets.]
+[single paragraph of prose]
 
 **What to do next**
-
-[One short prose paragraph. No bullets.]
+[single paragraph of prose]
 
 Rules for each section:
 
-- "What happened" always starts with the one-line facts summary. When two or more comparisons are available in the `Comparisons to recent history` block, follow with a bulleted list — one comparison per bullet. If only one comparison exists, fold it into the lead sentence instead of a single-item list. If none exist, omit the list entirely.
+- Each of the three sections is exactly one paragraph of prose. No bulleted or numbered lists anywhere. If the input includes a `Comparisons to recent history` block, weave the relevant comparisons into the "What happened" paragraph as sentences, not as a list.
+- "What happened" is a plain-prose recap: duration, distance, avg HR, and — where the input provides it — average speed or pace. Include the one or two most meaningful comparisons from the history block as additional sentences.
 - Classify session type (recovery / endurance / tempo / threshold / VO2 / unclear) only if HR-zone or power-zone data is present in the input. Otherwise say "unclear" or omit the classification. Raw avg/max HR alone is not enough.
 - "What it means" interprets the session in the context of its purpose. If nothing about this session is notable relative to recent sessions, write: "This was a typical [session type] [sport] consistent with recent training." Do not manufacture insight.
 - "What to do next" follows the recovery-data rule below.
+
+## Sources and attribution
+
+- Never mention the data source, platform, device, or brand (Whoop, Strava, Wahoo, Garmin, Apple Watch, etc.). Do not write "via Whoop", "from Strava", or "your watch says". The athlete does not need to see where the data came from.
+- Treat all fields in the input as simply "your data" regardless of which platform populated them.
 
 ## Recovery guidance
 
@@ -220,55 +245,127 @@ You must NOT use any of these phrases or their variants, even as a second senten
 When data is insufficient: produce a short insight acknowledging what's missing. A two-sentence honest output beats a five-paragraph confident one."""
 
 
+_MODEL_ID = "claude-sonnet-4-20250514"
+
+
+def _session_payload_snapshot(session: WorkoutSession) -> dict:
+    """Capture the raw session fields that feed the prompt, for persistent logging.
+
+    Kept separate from the model-facing context string so it's structured and
+    queryable. Platform attribution lives here (for internal debugging) but
+    not in the prompt or user-facing output.
+    """
+    return {
+        "session_id": str(getattr(session, "id", "")) or None,
+        "sport_type": session.sport_type,
+        "platforms": session.platforms,
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "duration_seconds": session.duration_seconds,
+        "distance_meters": session.distance_meters,
+        "calories": session.calories,
+        "avg_heart_rate": session.avg_heart_rate,
+        "max_heart_rate": session.max_heart_rate,
+        "strain_score": session.strain_score,
+        "recovery_score": session.recovery_score,
+        "hrv_rmssd": session.hrv_rmssd,
+        "elevation_gain": session.elevation_gain,
+        "avg_power_watts": session.avg_power_watts,
+    }
+
+
+async def _persist_insight_log(
+    db: AsyncSession | None,
+    insight_id: uuid.UUID,
+    session: WorkoutSession,
+    payload: dict,
+    user_prompt: str,
+    output_md: str | None,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Persist one generation attempt to the insight_logs table.
+
+    Best-effort: a logging failure must not break the email send path.
+    """
+    if db is None:
+        return
+    try:
+        row = InsightLog(
+            id=insight_id,
+            session_id=getattr(session, "id", None),
+            user_id=getattr(session, "user_id", None),
+            model=_MODEL_ID,
+            input_payload=payload,
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            output_markdown=output_md,
+            input_chars=len(user_prompt),
+            output_chars=len(output_md) if output_md else 0,
+            status=status,
+            error_message=error,
+        )
+        db.add(row)
+        await db.commit()
+    except Exception:
+        logger.exception("failed to persist insight_log %s", insight_id)
+
+
 async def generate_workout_narrative(
     session: WorkoutSession,
     highlights: WorkoutHighlights,
     user_name: str,
     units: str = "imperial",
     profile: UserProfile | None = None,
+    db: AsyncSession | None = None,
 ) -> str | None:
     """Generate a Claude-powered narrative summary for a workout session.
 
     Returns the narrative text, or None if generation fails.
+
+    When a db session is supplied, persists an `insight_logs` row capturing
+    the full input payload, prompt, and output with a unique insight_id.
     """
     if not settings.anthropic_api_key:
         logger.warning("ANTHROPIC_API_KEY not set, skipping narrative generation")
         return None
 
+    insight_id = uuid.uuid4()
     context = _build_workout_context(session, highlights, user_name, units, profile=profile)
+    user_prompt = f"Write a post-workout summary for this session:\n\n{context}"
+    payload = _session_payload_snapshot(session)
 
     try:
         client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=_MODEL_ID,
             max_tokens=300,
             system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"Write a post-workout summary for this session:\n\n{context}",
-                }
-            ],
+            messages=[{"role": "user", "content": user_prompt}],
         )
         narrative_md = message.content[0].text.strip()
         narrative_html = _narrative_to_html(narrative_md)
         logger.info(
-            "narrative_generated session=%s user=%s input_chars=%d output_chars=%d\n"
-            "--- INPUT CONTEXT ---\n%s\n--- OUTPUT (markdown) ---\n%s\n--- END ---",
+            "narrative_generated insight_id=%s session=%s user=%s input_chars=%d output_chars=%d",
+            insight_id,
             getattr(session, "id", "?"),
             user_name,
-            len(context),
+            len(user_prompt),
             len(narrative_md),
-            context,
-            narrative_md,
+        )
+        await _persist_insight_log(
+            db, insight_id, session, payload, user_prompt, narrative_md, status="ok"
         )
         return narrative_html
 
-    except Exception:
+    except Exception as exc:
         logger.exception(
-            "narrative_generation_failed session=%s user=%s\n--- INPUT CONTEXT ---\n%s\n--- END ---",
+            "narrative_generation_failed insight_id=%s session=%s user=%s",
+            insight_id,
             getattr(session, "id", "?"),
             user_name,
-            context,
+        )
+        await _persist_insight_log(
+            db, insight_id, session, payload, user_prompt, None,
+            status="error", error=str(exc),
         )
         return None

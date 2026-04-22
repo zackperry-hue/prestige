@@ -366,16 +366,6 @@ async def generate_session_highlights(
 
     highlights = await generate_highlights(db, user_id, pseudo_workout, units=units)
 
-    # Add cross-platform insight if multiple sources contributed
-    platforms = [p for p in session.platforms.split(",") if p]
-    if len(platforms) > 1:
-        platform_names = " + ".join(p.title() for p in platforms)
-        highlights.insights.insert(0, Insight(
-            label="Combined",
-            message=f"Data merged from {platform_names} for a complete picture",
-            direction="neutral",
-        ))
-
     # Add recovery context if available from Whoop
     if session.recovery_score is not None:
         if session.recovery_score >= 67:

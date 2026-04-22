@@ -46,8 +46,7 @@
                 {% if narrative %}
                 <tr>
                   <td style="padding:24px 24px 16px;">
-                    <p style="margin:0 0 4px; font-size:11px; font-weight:600; color:#888; text-transform:uppercase; letter-spacing:1px;">Workout Insight</p>
-                    <div style="margin:8px 0 0; font-size:15px; line-height:1.6; color:#2a2a2a;">{{ narrative|safe }}</div>
+                    <div style="margin:0; font-size:15px; line-height:1.6; color:#2a2a2a;">{{ narrative|safe }}</div>
                   </td>
                 </tr>
                 <tr>
@@ -144,13 +143,18 @@
                         {% endif %}
                       </tr>
                       {% endif %}
-                      <!-- Row 6: Pace + HRV -->
-                      {% if pace_display or hrv_rmssd is not none %}
+                      <!-- Row 6: Pace or Speed (sport-appropriate) + HRV -->
+                      {% if pace_display or speed_display or hrv_rmssd is not none %}
                       <tr>
                         {% if pace_display %}
                         <td width="50%" style="padding:8px 0;">
                           <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Pace</span><br>
                           <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ pace_display }}</span>
+                        </td>
+                        {% elif speed_display %}
+                        <td width="50%" style="padding:8px 0;">
+                          <span style="font-size:11px; color:#999; text-transform:uppercase; letter-spacing:0.5px;">Avg Speed</span><br>
+                          <span style="font-size:18px; font-weight:700; color:#1a1a2e;">{{ speed_display }}</span>
                         </td>
                         {% endif %}
                         {% if hrv_rmssd is not none %}

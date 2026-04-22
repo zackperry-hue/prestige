@@ -6,5 +6,6 @@ from app.models.workout import Workout
 from app.models.webhook_event import WebhookEvent
 from app.models.email_log import EmailLog
 from app.models.password_reset import PasswordResetToken
+from app.models.insight_log import InsightLog
 
-__all__ = ["User", "UserProfile", "PlatformConnection", "WorkoutSession", "Workout", "WebhookEvent", "EmailLog", "PasswordResetToken"]
+__all__ = ["User", "UserProfile", "PlatformConnection", "WorkoutSession", "Workout", "WebhookEvent", "EmailLog", "PasswordResetToken", "InsightLog"]
