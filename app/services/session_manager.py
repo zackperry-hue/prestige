@@ -124,6 +124,29 @@ def merge_into_session(session: WorkoutSession, workout: NormalizedWorkout, plat
         session.strain_score = _merge_field(session.strain_score, workout.strain_score, prefer_new=True)
         session.recovery_score = _merge_field(session.recovery_score, workout.recovery_score, prefer_new=True)
         session.hrv_rmssd = _merge_field(session.hrv_rmssd, workout.hrv_rmssd, prefer_new=True)
+        session.sleep_hours = _merge_field(session.sleep_hours, workout.sleep_hours, prefer_new=True)
+        session.sleep_performance = _merge_field(
+            session.sleep_performance, workout.sleep_performance, prefer_new=True
+        )
+
+    # Activity context: Strava is authoritative (the athlete sets workout_type/name/description on Strava)
+    if platform == "strava":
+        session.workout_subtype = _merge_field(session.workout_subtype, workout.workout_subtype, prefer_new=True)
+        session.activity_name = _merge_field(session.activity_name, workout.activity_name, prefer_new=True)
+        session.activity_description = _merge_field(
+            session.activity_description, workout.activity_description, prefer_new=True
+        )
+        session.athlete_count = _merge_field(session.athlete_count, workout.athlete_count, prefer_new=True)
+
+    # HR zones: Whoop chest-strap data is the gold standard; Strava is fallback
+    if platform == "whoop" and workout.hr_zone_durations:
+        session.hr_zone_durations = workout.hr_zone_durations
+    elif session.hr_zone_durations is None and workout.hr_zone_durations:
+        session.hr_zone_durations = workout.hr_zone_durations
+
+    # Power zones: Strava is the only current source
+    if workout.power_zone_durations and session.power_zone_durations is None:
+        session.power_zone_durations = workout.power_zone_durations
 
     # Sport type: prefer Strava's classification (most granular)
     if platform == "strava" and workout.sport_type:
@@ -200,6 +223,8 @@ async def create_or_update_session(
             workout.started_at,
         )
 
+    is_whoop = workout.platform == "whoop"
+    is_strava = workout.platform == "strava"
     session = WorkoutSession(
         user_id=user_id,
         sport_type=workout.sport_type,
@@ -212,9 +237,17 @@ async def create_or_update_session(
         max_heart_rate=workout.max_heart_rate,
         elevation_gain=workout.elevation_gain,
         avg_power_watts=workout.avg_power_watts,
-        strain_score=workout.strain_score if workout.platform == "whoop" else None,
-        recovery_score=workout.recovery_score if workout.platform == "whoop" else None,
-        hrv_rmssd=workout.hrv_rmssd if workout.platform == "whoop" else None,
+        strain_score=workout.strain_score if is_whoop else None,
+        recovery_score=workout.recovery_score if is_whoop else None,
+        hrv_rmssd=workout.hrv_rmssd if is_whoop else None,
+        sleep_hours=workout.sleep_hours if is_whoop else None,
+        sleep_performance=workout.sleep_performance if is_whoop else None,
+        workout_subtype=workout.workout_subtype if is_strava else None,
+        activity_name=workout.activity_name if is_strava else None,
+        activity_description=workout.activity_description if is_strava else None,
+        athlete_count=workout.athlete_count if is_strava else None,
+        hr_zone_durations=workout.hr_zone_durations,
+        power_zone_durations=workout.power_zone_durations,
         platforms=workout.platform,
         email_scheduled_at=email_scheduled_at,
     )
@@ -261,3 +294,63 @@ async def get_session_workouts(db: AsyncSession, session_id: uuid.UUID) -> list[
         .order_by(Workout.platform)
     )
     return list(result.scalars().all())
+
+
+async def enrich_session_with_daily_whoop(db: AsyncSession, session: WorkoutSession) -> None:
+    """Pull daily Whoop recovery + sleep for the session date and attach them.
+
+    Runs just before insight generation so a Strava-only (or Wahoo-only) ride
+    can still benefit from Whoop's daily context. Only fills fields that are
+    currently None — never overwrites values already supplied by a Whoop-recorded
+    workout. Best-effort: any failure is logged and swallowed so the email still
+    sends.
+    """
+    needs_recovery = session.recovery_score is None or session.hrv_rmssd is None
+    needs_sleep = session.sleep_hours is None or session.sleep_performance is None
+    if not needs_recovery and not needs_sleep:
+        return
+
+    result = await db.execute(
+        select(PlatformConnection).where(
+            PlatformConnection.user_id == session.user_id,
+            PlatformConnection.platform == "whoop",
+            PlatformConnection.is_active.is_(True),
+        )
+    )
+    conn = result.scalar_one_or_none()
+    if not conn:
+        return
+
+    try:
+        from app.platforms.whoop_client import (
+            extract_sleep_metrics,
+            fetch_whoop_recovery,
+            fetch_whoop_sleep,
+            get_whoop_token,
+        )
+
+        token = await get_whoop_token(conn, db)
+        date_str = session.started_at.date().isoformat()
+
+        if needs_recovery:
+            rec = await fetch_whoop_recovery(token, date_str)
+            if rec:
+                rec_score = rec.get("score", {}) or {}
+                if session.recovery_score is None:
+                    session.recovery_score = rec_score.get("recovery_score")
+                if session.hrv_rmssd is None:
+                    hrv = rec_score.get("hrv_rmssd_milli")
+                    if hrv is not None:
+                        session.hrv_rmssd = hrv / 1000.0
+
+        if needs_sleep:
+            sleep = await fetch_whoop_sleep(token, date_str)
+            hrs, perf = extract_sleep_metrics(sleep)
+            if session.sleep_hours is None and hrs is not None:
+                session.sleep_hours = hrs
+            if session.sleep_performance is None and perf is not None:
+                session.sleep_performance = perf
+
+        await db.commit()
+    except Exception:
+        logger.exception("Failed to enrich session %s with daily Whoop data", session.id)

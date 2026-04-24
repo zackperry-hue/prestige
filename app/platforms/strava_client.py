@@ -71,10 +71,93 @@ async def fetch_strava_activity(activity_id: int | str, access_token: str) -> di
     return resp.json()
 
 
-def normalize_strava_activity(data: dict) -> NormalizedWorkout:
-    """Convert a Strava activity into a NormalizedWorkout."""
+async def fetch_strava_activity_zones(activity_id: int | str, access_token: str) -> list[dict]:
+    """Fetch time-in-zone for an activity. Returns a list of zone-type blocks
+    (typically "heartrate" and/or "power"), each with a `distribution_buckets`
+    array of {min, max, time}. Empty list if the athlete has no zones set
+    or the activity has no streams.
+    """
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            f"{STRAVA_API_BASE}/activities/{activity_id}/zones",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+    # Activities without HR/power streams return 200 with [] or 404; both are non-fatal.
+    if resp.status_code == 404:
+        return []
+    if resp.status_code != 200:
+        logger.warning(
+            "Strava zones fetch failed (status %s): %s",
+            resp.status_code,
+            redact_secrets(resp.text),
+        )
+        return []
+    data = resp.json()
+    return data if isinstance(data, list) else []
+
+
+# Strava workout_type values (per their API docs)
+# Run: 0=default, 1=race, 2=long run, 3=workout
+# Ride: 10=default, 11=race, 12=workout
+_STRAVA_WORKOUT_TYPE_MAP: dict[int, str] = {
+    1: "race",
+    2: "long_run",
+    3: "workout",
+    11: "race",
+    12: "workout",
+}
+
+
+def _zones_to_seconds(zone_block: dict) -> list[int] | None:
+    """Convert a Strava zones block's distribution_buckets to a list of seconds per zone."""
+    buckets = zone_block.get("distribution_buckets") or []
+    if not buckets:
+        return None
+    return [int(b.get("time", 0)) for b in buckets]
+
+
+def split_strava_zones(zones: list[dict]) -> tuple[list[int] | None, list[int] | None]:
+    """From the /activities/{id}/zones response, return (hr_zones, power_zones)
+    as lists of seconds per zone. Either may be None if the athlete didn't have
+    that signal recorded.
+    """
+    hr = None
+    power = None
+    for block in zones:
+        zone_type = (block.get("type") or "").lower()
+        if zone_type == "heartrate":
+            hr = _zones_to_seconds(block)
+        elif zone_type == "power":
+            power = _zones_to_seconds(block)
+    return hr, power
+
+
+def normalize_strava_activity(
+    data: dict, zones: list[dict] | None = None
+) -> NormalizedWorkout:
+    """Convert a Strava activity into a NormalizedWorkout.
+
+    If `zones` from /activities/{id}/zones is provided, time-in-zone is attached
+    for HR and power.
+    """
     started_at = datetime.fromisoformat(data["start_date"].replace("Z", "+00:00"))
     elapsed_time = data.get("elapsed_time", data.get("moving_time", 0))
+
+    workout_type_raw = data.get("workout_type")
+    workout_subtype = (
+        _STRAVA_WORKOUT_TYPE_MAP.get(workout_type_raw)
+        if isinstance(workout_type_raw, int)
+        else None
+    )
+
+    athlete_count = data.get("athlete_count")
+    if isinstance(athlete_count, int) and athlete_count <= 0:
+        athlete_count = None
+
+    hr_zones = None
+    power_zones = None
+    if zones:
+        hr_zones, power_zones = split_strava_zones(zones)
 
     return NormalizedWorkout(
         platform="strava",
@@ -89,6 +172,12 @@ def normalize_strava_activity(data: dict) -> NormalizedWorkout:
         max_heart_rate=data.get("max_heartrate"),
         elevation_gain=data.get("total_elevation_gain"),
         avg_power_watts=data.get("average_watts"),
+        workout_subtype=workout_subtype,
+        activity_name=data.get("name") or None,
+        activity_description=data.get("description") or None,
+        athlete_count=athlete_count,
+        hr_zone_durations=hr_zones,
+        power_zone_durations=power_zones,
         raw_data=data,
     )
 

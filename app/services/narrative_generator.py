@@ -145,11 +145,16 @@ def _build_workout_context(
     if session.max_heart_rate:
         lines.append(f"Max heart rate: {int(session.max_heart_rate)} bpm")
     if session.strain_score:
-        lines.append(f"Whoop strain: {session.strain_score:.1f}")
+        lines.append(f"Strain score: {session.strain_score:.1f}")
     if session.recovery_score is not None:
-        lines.append(f"Whoop recovery: {int(session.recovery_score)}%")
+        lines.append(f"Recovery score: {int(session.recovery_score)}%")
     if session.hrv_rmssd is not None:
         lines.append(f"HRV (RMSSD): {int(session.hrv_rmssd)} ms")
+    if session.sleep_hours is not None:
+        sleep_line = f"Sleep last night: {session.sleep_hours:.1f} hours"
+        if session.sleep_performance is not None:
+            sleep_line += f" (sleep performance {int(session.sleep_performance)}%)"
+        lines.append(sleep_line)
     if session.elevation_gain:
         if units == "imperial":
             lines.append(f"Elevation gain: {int(session.elevation_gain * 3.28084)} ft")
@@ -157,6 +162,22 @@ def _build_workout_context(
             lines.append(f"Elevation gain: {int(session.elevation_gain)} m")
     if session.avg_power_watts:
         lines.append(f"Avg power: {int(session.avg_power_watts)} W")
+
+    # Athlete-set intent: this is the most important context for "what it means"
+    if session.workout_subtype:
+        subtype_label = session.workout_subtype.replace("_", " ")
+        lines.append(f"Workout type (set by athlete): {subtype_label}")
+    if session.athlete_count and session.athlete_count > 1:
+        lines.append(f"Group activity: yes ({session.athlete_count} athletes)")
+    if session.activity_name:
+        lines.append(f"Activity title: {session.activity_name}")
+    if session.activity_description:
+        lines.append(f"Activity notes: {session.activity_description}")
+
+    if session.hr_zone_durations:
+        lines.append(f"Time in HR zones (seconds, Z0–Z5): {session.hr_zone_durations}")
+    if session.power_zone_durations:
+        lines.append(f"Time in power zones (seconds, lowest→highest): {session.power_zone_durations}")
 
     # Add historical context from insights
     if highlights.insights:
@@ -200,8 +221,13 @@ Rules for each section:
 
 - Each of the three sections is exactly one paragraph of prose. No bulleted or numbered lists anywhere. If the input includes a `Comparisons to recent history` block, weave the relevant comparisons into the "What happened" paragraph as sentences, not as a list.
 - "What happened" is a plain-prose recap: duration, distance, avg HR, and — where the input provides it — average speed or pace. Include the one or two most meaningful comparisons from the history block as additional sentences.
-- Classify session type (recovery / endurance / tempo / threshold / VO2 / unclear) only if HR-zone or power-zone data is present in the input. Otherwise say "unclear" or omit the classification. Raw avg/max HR alone is not enough.
-- "What it means" interprets the session in the context of its purpose. If nothing about this session is notable relative to recent sessions, write: "This was a typical [session type] [sport] consistent with recent training." Do not manufacture insight.
+- Classify session type (recovery / endurance / tempo / threshold / VO2 / unclear) using this priority:
+  1. If `Workout type (set by athlete)` is present, the athlete's stated intent wins (race, workout, long run, commute) — describe the session in those terms.
+  2. Else if `Activity title` or `Activity notes` contain explicit intent ("recovery", "Z2", "tempo", "intervals", "threshold", "long ride", "easy"), use that.
+  3. Else if HR-zone or power-zone time-in-zone data is present, classify from the distribution: a session with the majority of time in Z0–Z2 is endurance/recovery; meaningful time in Z3 (≥20%) is tempo; meaningful time in Z4 is threshold; Z5 is VO2.
+  4. Otherwise say "unclear" or omit the classification. Raw avg/max HR alone is not enough.
+- If `Group activity: yes` is present, factor that into interpretation — pace and HR in a group ride reflect group dynamics, not solo effort.
+- "What it means" interprets the session in the context of its stated purpose. If the athlete tagged it as recovery / Z2 / endurance, do NOT call it "moderate" because HR was elevated — the intent and zone data win. If nothing about this session is notable relative to recent sessions, write: "This was a typical [session type] [sport] consistent with recent training." Do not manufacture insight.
 - "What to do next" follows the recovery-data rule below.
 
 ## Sources and attribution
@@ -211,11 +237,22 @@ Rules for each section:
 
 ## Recovery guidance
 
-If at least one of HRV (RMSSD), Whoop recovery score, sleep, resting HR, or RPE is present in the input, use that signal to give specific guidance.
+If any of these signals are present, use them concretely in "What to do next" and reference them by what they represent (not by brand name):
+- Recovery score (the input field is `Recovery score`)
+- HRV (RMSSD)
+- Sleep hours / sleep performance
+- Resting HR
+- RPE
 
-If none of those are present, produce guidance in exactly this shape:
+Concrete guidance examples (do not copy verbatim — adapt to the actual numbers):
+- Low recovery (<33%) or unusually low HRV → recommend an easy/rest day next.
+- Moderate recovery (33–66%) → moderate session is appropriate.
+- High recovery (>66%) with adequate sleep (>7h) → green light for a quality session.
+- Sleep <6h → pull back intensity regardless of recovery score.
 
-"Connect HRV, sleep, or RPE data for recovery-specific guidance. Based on heart rate alone, this session appears [moderate / moderate-to-hard / hard]; plan the next session's intensity accordingly."
+Only if NONE of the recovery signals above are present, produce guidance in exactly this shape:
+
+"Connect recovery data (HRV, sleep, or RPE) for recovery-specific guidance. Based on heart rate alone, this session appears [moderate / moderate-to-hard / hard]; plan the next session's intensity accordingly."
 
 You must NOT use any of these phrases or their variants, even as a second sentence:
 - "monitor how you feel"
@@ -268,8 +305,16 @@ def _session_payload_snapshot(session: WorkoutSession) -> dict:
         "strain_score": session.strain_score,
         "recovery_score": session.recovery_score,
         "hrv_rmssd": session.hrv_rmssd,
+        "sleep_hours": session.sleep_hours,
+        "sleep_performance": session.sleep_performance,
         "elevation_gain": session.elevation_gain,
         "avg_power_watts": session.avg_power_watts,
+        "workout_subtype": session.workout_subtype,
+        "activity_name": session.activity_name,
+        "activity_description": session.activity_description,
+        "athlete_count": session.athlete_count,
+        "hr_zone_durations": session.hr_zone_durations,
+        "power_zone_durations": session.power_zone_durations,
     }
 
 

@@ -30,9 +30,6 @@
                       <tr>
                         <td>
                           <span style="color:#ffffff; font-size:16px; font-weight:700;">{{ sport_type_display }}</span>
-                          <span style="color:rgba(255,255,255,0.7); font-size:13px; margin-left:8px;">
-                            via {% for p in platforms %}{{ p | title }}{% if not loop.last %} + {% endif %}{% endfor %}
-                          </span>
                         </td>
                         <td style="text-align:right;">
                           <span style="color:rgba(255,255,255,0.9); font-size:13px;">{{ workout_date_short }}</span>

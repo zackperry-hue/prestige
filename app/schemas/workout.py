@@ -21,6 +21,17 @@ class NormalizedWorkout(BaseModel):
     hrv_rmssd: float | None = None
     elevation_gain: float | None = None
     avg_power_watts: float | None = None
+    # Activity context (mostly Strava — the user's intent for the workout)
+    workout_subtype: str | None = None  # "race" | "long_run" | "workout" | "commute"
+    activity_name: str | None = None
+    activity_description: str | None = None
+    athlete_count: int | None = None  # >1 ⇒ group ride/run
+    # Time in zone (seconds per zone, lowest → highest)
+    hr_zone_durations: list[int] | None = None
+    power_zone_durations: list[int] | None = None
+    # Daily recovery context (Whoop)
+    sleep_hours: float | None = None
+    sleep_performance: float | None = None
     raw_data: dict = {}
 
 

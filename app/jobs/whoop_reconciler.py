@@ -9,6 +9,7 @@ from app.database import async_session_factory
 from app.models.connection import PlatformConnection
 from app.platforms.whoop_client import (
     fetch_whoop_recovery,
+    fetch_whoop_sleep,
     fetch_whoop_workouts,
     get_whoop_token,
     normalize_whoop_workout,
@@ -53,18 +54,25 @@ async def reconcile_whoop_workouts():
                     token, start=since, end=datetime.now(UTC)
                 )
 
-                # Cache recovery data by date to avoid duplicate API calls
+                # Cache recovery + sleep by date to avoid duplicate API calls
                 recovery_cache: dict[str, dict | None] = {}
+                sleep_cache: dict[str, dict | None] = {}
                 count = 0
                 for w in all_workouts:
                     w_start = w.get("start", "")
                     w_date = w_start[:10] if w_start else None
                     recovery_data = None
+                    sleep_data = None
                     if w_date:
                         if w_date not in recovery_cache:
                             recovery_cache[w_date] = await fetch_whoop_recovery(token, w_date)
                         recovery_data = recovery_cache[w_date]
-                    normalized = normalize_whoop_workout(w, recovery_data=recovery_data)
+                        if w_date not in sleep_cache:
+                            sleep_cache[w_date] = await fetch_whoop_sleep(token, w_date)
+                        sleep_data = sleep_cache[w_date]
+                    normalized = normalize_whoop_workout(
+                        w, recovery_data=recovery_data, sleep_data=sleep_data
+                    )
                     # process_workout handles deduplication via UNIQUE constraint
                     result = await process_workout(db, fresh_conn.user_id, normalized)
                     if result is not None:

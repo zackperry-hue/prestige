@@ -17,7 +17,11 @@ from app.models.user import User
 from app.models.workout_session import WorkoutSession
 from app.schemas.workout import NormalizedWorkout
 from app.services.email_service import send_session_email
-from app.services.session_manager import get_session_workouts, get_sessions_ready_to_email
+from app.services.session_manager import (
+    enrich_session_with_daily_whoop,
+    get_session_workouts,
+    get_sessions_ready_to_email,
+)
 from app.services.workout_insights import generate_session_highlights
 
 logger = logging.getLogger(__name__)
@@ -50,6 +54,11 @@ async def check_and_send_session_emails():
 
                     # Get all workouts in this session
                     workouts = await get_session_workouts(db, session.id)
+
+                    # Pull daily Whoop recovery + sleep if not already on the
+                    # session — covers Strava-only / Wahoo-only sessions where
+                    # Whoop wasn't recording the workout itself.
+                    await enrich_session_with_daily_whoop(db, session)
 
                     # Generate highlights using session data
                     units = getattr(user, "unit_system", "imperial")

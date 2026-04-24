@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.webhook_event import WebhookEvent
 from app.platforms.strava_client import (
     fetch_strava_activity,
+    fetch_strava_activity_zones,
     get_connection_by_athlete_id,
     get_strava_token,
     normalize_strava_activity,
@@ -106,7 +107,8 @@ async def _process_strava_activity(activity_id: int, owner_id: str, event_id):
 
             token = await get_strava_token(conn, db)
             activity_data = await fetch_strava_activity(activity_id, token)
-            normalized = normalize_strava_activity(activity_data)
+            zones = await fetch_strava_activity_zones(activity_id, token)
+            normalized = normalize_strava_activity(activity_data, zones=zones)
             await process_workout(db, conn.user_id, normalized)
 
             # Mark webhook event as processed

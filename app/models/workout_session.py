@@ -3,8 +3,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -37,6 +37,18 @@ class WorkoutSession(Base):
     strain_score: Mapped[float | None] = mapped_column(Float)
     recovery_score: Mapped[float | None] = mapped_column(Float)
     hrv_rmssd: Mapped[float | None] = mapped_column(Float)  # HRV from recovery
+    sleep_hours: Mapped[float | None] = mapped_column(Float)
+    sleep_performance: Mapped[float | None] = mapped_column(Float)
+
+    # Activity context (the athlete's intent — Strava workout_type, name, description)
+    workout_subtype: Mapped[str | None] = mapped_column(String(50))
+    activity_name: Mapped[str | None] = mapped_column(String(255))
+    activity_description: Mapped[str | None] = mapped_column(Text)
+    athlete_count: Mapped[int | None] = mapped_column(Integer)  # >1 ⇒ group ride/run
+
+    # Time-in-zone (list of seconds per zone, lowest → highest)
+    hr_zone_durations: Mapped[list[int] | None] = mapped_column(JSONB)
+    power_zone_durations: Mapped[list[int] | None] = mapped_column(JSONB)
 
     # Platforms that contributed to this session
     platforms: Mapped[str] = mapped_column(String(100), default="")  # comma-separated: "strava,whoop"

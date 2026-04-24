@@ -142,10 +142,78 @@ async def fetch_whoop_recovery(access_token: str, start_date: str) -> dict | Non
     return records[0]
 
 
-def normalize_whoop_workout(data: dict, recovery_data: dict | None = None) -> NormalizedWorkout:
+async def fetch_whoop_sleep(access_token: str, start_date: str) -> dict | None:
+    """Fetch the most recent sleep record overlapping a date.
+
+    start_date is YYYY-MM-DD. Returns the raw sleep record (or None) — the
+    last main sleep that ended on or after midnight of `start_date`.
+    """
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(
+            f"{WHOOP_API_BASE}/activity/sleep",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"start": f"{start_date}T00:00:00.000Z", "end": f"{start_date}T23:59:59.999Z"},
+        )
+    if resp.status_code != 200:
+        logger.warning(
+            "Whoop sleep fetch failed (status %s): %s",
+            resp.status_code,
+            redact_secrets(resp.text),
+        )
+        return None
+    records = resp.json().get("records", [])
+    # Prefer the most recent non-nap sleep that ended on this date.
+    non_nap = [r for r in records if not r.get("nap")]
+    candidates = non_nap or records
+    if not candidates:
+        return None
+    return candidates[0]
+
+
+def extract_sleep_metrics(sleep_data: dict | None) -> tuple[float | None, float | None]:
+    """Return (sleep_hours, sleep_performance_pct) from a Whoop sleep record."""
+    if not sleep_data:
+        return None, None
+    score = sleep_data.get("score", {}) or {}
+    stage = score.get("stage_summary", {}) or {}
+    light = stage.get("total_light_sleep_time_milli") or 0
+    deep = stage.get("total_slow_wave_sleep_time_milli") or 0
+    rem = stage.get("total_rem_sleep_time_milli") or 0
+    total_ms = light + deep + rem
+    sleep_hours = total_ms / 3_600_000.0 if total_ms > 0 else None
+    perf = score.get("sleep_performance_percentage")
+    return sleep_hours, perf
+
+
+def _extract_whoop_hr_zones(score: dict) -> list[int] | None:
+    """Whoop's score.zone_durations is {zone_zero_milli, ..., zone_five_milli}.
+    Return seconds-per-zone in zone order, or None if absent.
+    """
+    zd = score.get("zone_durations") or score.get("zone_duration") or {}
+    if not isinstance(zd, dict):
+        return None
+    keys = [
+        "zone_zero_milli",
+        "zone_one_milli",
+        "zone_two_milli",
+        "zone_three_milli",
+        "zone_four_milli",
+        "zone_five_milli",
+    ]
+    if not any(k in zd for k in keys):
+        return None
+    return [int((zd.get(k) or 0) / 1000) for k in keys]
+
+
+def normalize_whoop_workout(
+    data: dict,
+    recovery_data: dict | None = None,
+    sleep_data: dict | None = None,
+) -> NormalizedWorkout:
     """Convert a Whoop workout into a NormalizedWorkout.
 
-    If recovery_data is provided, it includes recovery_score and hrv_rmssd.
+    recovery_data populates recovery_score and hrv_rmssd.
+    sleep_data populates sleep_hours and sleep_performance.
     """
     start = datetime.fromisoformat(data["start"].replace("Z", "+00:00"))
     end = datetime.fromisoformat(data["end"].replace("Z", "+00:00")) if data.get("end") else None
@@ -164,6 +232,9 @@ def normalize_whoop_workout(data: dict, recovery_data: dict | None = None) -> No
         if hrv_rmssd is not None:
             hrv_rmssd = hrv_rmssd / 1000.0  # Convert from milliseconds to ms (RMSSD)
 
+    sleep_hours, sleep_perf = extract_sleep_metrics(sleep_data)
+    hr_zones = _extract_whoop_hr_zones(score)
+
     return NormalizedWorkout(
         platform="whoop",
         platform_workout_id=str(data["id"]),
@@ -178,6 +249,9 @@ def normalize_whoop_workout(data: dict, recovery_data: dict | None = None) -> No
         strain_score=score.get("strain"),
         recovery_score=recovery_score,
         hrv_rmssd=hrv_rmssd,
+        sleep_hours=sleep_hours,
+        sleep_performance=sleep_perf,
+        hr_zone_durations=hr_zones,
         raw_data=data,
     )
 

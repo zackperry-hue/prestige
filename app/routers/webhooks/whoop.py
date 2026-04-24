@@ -11,10 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.webhook_event import WebhookEvent
 from app.platforms.whoop_client import (
+    fetch_whoop_recovery,
+    fetch_whoop_sleep,
     fetch_whoop_workout,
     get_connection_by_whoop_user,
     get_whoop_token,
-    fetch_whoop_recovery,
     normalize_whoop_workout,
 )
 from app.services.webhook_validator import validate_whoop_signature
@@ -83,14 +84,18 @@ async def _process_whoop_workout(whoop_user_id: str, workout_id: str, event_id):
             token = await get_whoop_token(conn, db)
             workout_data = await fetch_whoop_workout(workout_id, token)
 
-            # Fetch recovery data for the workout date
+            # Fetch daily recovery + sleep for the workout date
             workout_start = workout_data.get("start", "")
             workout_date = workout_start[:10] if workout_start else None
             recovery_data = None
+            sleep_data = None
             if workout_date:
                 recovery_data = await fetch_whoop_recovery(token, workout_date)
+                sleep_data = await fetch_whoop_sleep(token, workout_date)
 
-            normalized = normalize_whoop_workout(workout_data, recovery_data=recovery_data)
+            normalized = normalize_whoop_workout(
+                workout_data, recovery_data=recovery_data, sleep_data=sleep_data
+            )
             await process_workout(db, conn.user_id, normalized)
 
             # Mark webhook event as processed
